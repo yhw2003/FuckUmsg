@@ -35,6 +35,10 @@ type Config struct {
 	Storage struct {
 		SQLitePath string `toml:"sqlite_path"`
 	} `toml:"storage"`
+	Log struct {
+		Level  string `toml:"level"`
+		Format string `toml:"format"`
+	} `toml:"log"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -50,6 +54,9 @@ func LoadConfig(path string) (Config, error) {
 	}
 	applyDefaults(&cfg)
 	if err := validateCalendar(&cfg); err != nil {
+		return cfg, err
+	}
+	if err := validateLog(&cfg); err != nil {
 		return cfg, err
 	}
 	return cfg, nil
@@ -77,6 +84,9 @@ func applyDefaults(cfg *Config) {
 	if strings.TrimSpace(cfg.Storage.SQLitePath) == "" {
 		cfg.Storage.SQLitePath = "./data.db"
 	}
+	if strings.TrimSpace(cfg.Log.Format) == "" {
+		cfg.Log.Format = "json"
+	}
 }
 
 func validateCalendar(cfg *Config) error {
@@ -103,6 +113,23 @@ func validateCalendar(cfg *Config) error {
 		return errors.New("calendar.week1_monday must be a Monday")
 	}
 	return nil
+}
+
+func validateLog(cfg *Config) error {
+	format := strings.ToLower(strings.TrimSpace(cfg.Log.Format))
+	switch format {
+	case "json", "development":
+	default:
+		return errors.New("log.format must be one of: json, development")
+	}
+
+	level := strings.ToLower(strings.TrimSpace(cfg.Log.Level))
+	switch level {
+	case "", "debug", "info", "warn", "warning", "error":
+		return nil
+	default:
+		return errors.New("log.level must be one of: debug, info, warn, warning, error")
+	}
 }
 
 func ResolveConfigPath(arg string) string {

@@ -24,29 +24,44 @@ import (
 	"chat-assist-backend/internal/storage"
 )
 
+func resolveLogOptions(cfg config.Config, envLevel string) (level, format string) {
+	level = strings.TrimSpace(cfg.Log.Level)
+	if level == "" {
+		level = strings.TrimSpace(envLevel)
+	}
+	if level == "" {
+		level = "info"
+	}
+	format = strings.TrimSpace(cfg.Log.Format)
+	if format == "" {
+		format = "json"
+	}
+	return level, format
+}
 func main() {
 	configFlag := flag.String("config", "", "path to config.toml")
 	flag.Parse()
 
-	logger, err := logx.New(os.Getenv("LOG_LEVEL"))
+	configPath := config.ResolveConfigPath(strings.TrimSpace(*configFlag))
+	if configPath == "" {
+		os.Stderr.WriteString("config.toml not found\n")
+		os.Exit(1)
+	}
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		os.Stderr.WriteString("load config failed: " + err.Error() + "\n")
+		os.Exit(1)
+	}
+
+	effectiveLevel, effectiveFormat := resolveLogOptions(cfg, os.Getenv("LOG_LEVEL"))
+	logger, err := logx.New(effectiveLevel, effectiveFormat)
 	if err != nil {
 		panic(err)
 	}
 	defer func() {
 		_ = logger.Sync()
 	}()
-
-	configPath := config.ResolveConfigPath(strings.TrimSpace(*configFlag))
-	if configPath == "" {
-		logger.Error("config.toml not found")
-		os.Exit(1)
-	}
-
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		logger.Error("load config failed", zap.Error(err))
-		os.Exit(1)
-	}
 	if strings.TrimSpace(cfg.Server.Password) == "" {
 		logger.Warn("server.password is empty, login will always fail")
 	}

@@ -12,11 +12,11 @@ QQ消息 -> OneBot11 SSE -> 后端解析/过滤 -> OpenAI 抽取 -> SQLite -> We
 
 - `backend/` Go 后端（SSE 监听、LLM 抽取、REST API、SQLite）
 - `frontend/` Vite + React 前端
-- `backend/config.toml` 运行配置
+- `backend/config.toml` 运行配置（可参考 `backend/config.example.toml`）
 
 ## 配置
 
-编辑 `backend/config.toml`：
+编辑 `backend/config.toml`（推荐先复制 `backend/config.example.toml`）：
 
 ```toml
 [server]
@@ -26,18 +26,33 @@ static_dir = "../frontend/dist"
 token_ttl_minutes = 1440
 
 [onebot]
+# OneBot11 SSE 地址（用于接收消息事件）
 sse_url = "http://127.0.0.1:5700/onebot/v11/sse"
+# OneBot11 HTTP API 地址（用于查询群名、昵称、登录信息等）
+api_url = "http://127.0.0.1:5700"
+# 如果 OneBot 配置了访问令牌，请填写
 access_token = ""
 
 [openai]
 base_url = "https://api.openai.com/v1"
 api_key = ""
 model = "gpt-4o-mini"
-format = "json_schema"
 timeout_seconds = 30
+
+[calendar]
+# 周解释策略：academic=按学周体系解释“第13周周二”；natural=按自然周解释
+week_mode = "academic"
+# 当前学期第1周的星期一（week_mode=academic 时必填，用于解析“13周星期二”等相对学周时间）
+week1_monday = "2026-02-23"
 
 [storage]
 sqlite_path = "./data.db"
+
+[log]
+# 日志级别：debug/info/warn/warning/error（留空时回退环境变量 LOG_LEVEL，再兜底 info）
+level = "info"
+# 日志格式：json/development
+format = "json"
 ```
 
 要点：
@@ -45,7 +60,9 @@ sqlite_path = "./data.db"
 - `onebot.sse_url` 请填写 OneBot11 的 SSE 接口地址。
 - `server.password` 是网页登录口令。
 - `openai.api_key` 为敏感信息，请勿提交到公共仓库。
-- LLM 输出采用固定两行格式（`IS_TODO` / `TITLE`），解析失败会记录日志且不会入库。
+- `calendar.week_mode` 仅支持 `academic` / `natural`。
+- 当 `calendar.week_mode=academic` 时，`calendar.week1_monday` 必填，格式 `YYYY-MM-DD`，且必须是周一。
+- 日志优先级规则：`log.level`（配置） > `LOG_LEVEL`（环境变量） > `info`（默认）。
 
 ## 运行方式
 
@@ -64,6 +81,8 @@ cd backend
 go mod tidy
 go run . -config config.toml
 ```
+
+不传 `-config` 时，会按顺序尝试 `./config.toml`、`./backend/config.toml`。
 
 3. 浏览器访问：
 

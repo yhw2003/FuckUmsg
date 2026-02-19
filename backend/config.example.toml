@@ -18,5 +18,17 @@ api_key = ""
 model = "gpt-4o-mini"
 timeout_seconds = 30
 
+[calendar]
+# 周解释策略：academic=按学周体系解释“第13周周二”；natural=按自然周解释
+week_mode = "academic"
+# 当前学期第1周的星期一（week_mode=academic 时必填，用于解析“13周星期二”等相对学周时间）
+week1_monday = "2026-02-23"
+
 [storage]
 sqlite_path = "./data.db"
+
+[log]
+# 日志级别：debug/info/warn/warning/error（留空时回退环境变量 LOG_LEVEL，再兜底 info）
+level = "info"
+# 日志格式：json/development
+format = "json"

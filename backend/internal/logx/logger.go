@@ -7,8 +7,14 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-func New(level string) (*zap.Logger, error) {
-	cfg := zap.NewProductionConfig()
+func New(level, format string) (*zap.Logger, error) {
+	var cfg zap.Config
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "development":
+		cfg = zap.NewDevelopmentConfig()
+	default:
+		cfg = zap.NewProductionConfig()
+	}
 	cfg.Level = zap.NewAtomicLevelAt(parseLevel(level))
 	return cfg.Build()
 }
