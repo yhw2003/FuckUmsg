@@ -18,15 +18,23 @@ import (
 	"chat-assist-backend/internal/storage"
 )
 
+type serverStore interface {
+	List(ctx context.Context) ([]model.Todo, error)
+	ListLLMFailedMessagesByUser(ctx context.Context, userID int64) ([]model.LLMFailedMessage, error)
+	UpdateStatus(ctx context.Context, id int64, status string, completedAt *int64) error
+	UpdateContent(ctx context.Context, id int64, title string, detail string) error
+	Delete(ctx context.Context, id int64) error
+}
+
 type Server struct {
 	cfg    config.Config
-	store  *storage.Store
+	store  serverStore
 	tokens *auth.TokenStore
 	onebot *onebot.Client
 	logger *zap.Logger
 }
 
-func New(cfg config.Config, store *storage.Store, tokens *auth.TokenStore, onebot *onebot.Client, logger *zap.Logger) *Server {
+func New(cfg config.Config, store serverStore, tokens *auth.TokenStore, onebot *onebot.Client, logger *zap.Logger) *Server {
 	return &Server{cfg: cfg, store: store, tokens: tokens, onebot: onebot, logger: logger}
 }
 
@@ -36,6 +44,7 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 	api := router.Group("/api")
 	api.Use(auth.Middleware(s.tokens))
 	api.GET("/todos", s.handleListTodos)
+	api.GET("/failed-messages", s.handleListFailedMessages)
 	api.POST("/todos/:id/complete", s.handleComplete)
 	api.POST("/todos/:id/reopen", s.handleReopen)
 	api.PATCH("/todos/:id", s.handleUpdateTitle)
@@ -74,6 +83,25 @@ func (s *Server) handleListTodos(c *gin.Context) {
 	}
 	s.resolveTodoNames(c.Request.Context(), todos)
 	c.JSON(http.StatusOK, gin.H{"todos": todos})
+}
+
+func (s *Server) handleListFailedMessages(c *gin.Context) {
+	userID, ok := c.Get("auth_user_id")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	uid, ok := userID.(int64)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	failedMessages, err := s.store.ListLLMFailedMessagesByUser(c.Request.Context(), uid)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load failed messages"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"failed_messages": failedMessages})
 }
 
 func (s *Server) handleComplete(c *gin.Context) {

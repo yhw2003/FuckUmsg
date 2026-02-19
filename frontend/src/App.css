@@ -153,6 +153,35 @@
   font-size: 0.9rem;
 }
 
+.view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #fff8f2;
+}
+
+.button.secondary.active {
+  background: #f7f0e6;
+  border-color: #e2d2bf;
+}
+
+.failed-item {
+  border-color: #f1d4cc;
+  background: #fff9f7;
+}
+
+.badge.failed {
+  background: rgba(180, 35, 24, 0.12);
+  color: #b42318;
+}
+
+.todo-meta .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
 .todo-list {
   display: flex;
   flex-direction: column;

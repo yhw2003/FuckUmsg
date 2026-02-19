@@ -39,6 +39,17 @@ type TodoInput struct {
 	DeadlineNote      string
 }
 
+type LLMFailedMessageInput struct {
+	UserID     int64
+	SourceType string
+	SourceID   string
+	MessageID  string
+	RawMessage string
+	FailStage  string
+	ErrorText  string
+	CreatedAt  int64
+}
+
 func Open(path string) (*gorm.DB, error) {
 	return gorm.Open(sqlite.Open(path), &gorm.Config{})
 }
@@ -51,7 +62,7 @@ func (s *Store) Init(ctx context.Context) error {
 	if s.db == nil {
 		return errors.New("db is nil")
 	}
-	if err := s.db.WithContext(ctx).AutoMigrate(&model.Todo{}); err != nil {
+	if err := s.db.WithContext(ctx).AutoMigrate(&model.Todo{}, &model.LLMFailedMessage{}); err != nil {
 		return err
 	}
 	if err := s.db.WithContext(ctx).Exec(
@@ -97,6 +108,53 @@ func (s *Store) List(ctx context.Context) ([]model.Todo, error) {
 		return nil, err
 	}
 	return todos, nil
+}
+
+func (s *Store) CreateLLMFailedMessage(ctx context.Context, input LLMFailedMessageInput) (int64, error) {
+	if input.UserID == 0 {
+		return 0, errors.New("user_id is required")
+	}
+	if input.SourceType == "" {
+		return 0, errors.New("source_type is required")
+	}
+	if input.SourceID == "" {
+		return 0, errors.New("source_id is required")
+	}
+	if input.RawMessage == "" {
+		return 0, errors.New("raw_message is required")
+	}
+	if input.FailStage == "" {
+		return 0, errors.New("fail_stage is required")
+	}
+	if input.ErrorText == "" {
+		return 0, errors.New("error_text is required")
+	}
+	failed := model.LLMFailedMessage{
+		UserID:     input.UserID,
+		SourceType: input.SourceType,
+		SourceID:   input.SourceID,
+		MessageID:  input.MessageID,
+		RawMessage: input.RawMessage,
+		FailStage:  input.FailStage,
+		ErrorText:  input.ErrorText,
+		CreatedAt:  input.CreatedAt,
+	}
+	if err := s.db.WithContext(ctx).Create(&failed).Error; err != nil {
+		return 0, err
+	}
+	return failed.ID, nil
+}
+
+func (s *Store) ListLLMFailedMessagesByUser(ctx context.Context, userID int64) ([]model.LLMFailedMessage, error) {
+	var failed []model.LLMFailedMessage
+	query := s.db.WithContext(ctx).Order("created_at DESC, id DESC")
+	if userID > 0 {
+		query = query.Where("user_id = ?", userID)
+	}
+	if err := query.Find(&failed).Error; err != nil {
+		return nil, err
+	}
+	return failed, nil
 }
 
 func (s *Store) UpdateStatus(ctx context.Context, id int64, status string, completedAt *int64) error {

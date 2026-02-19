@@ -18,6 +18,18 @@ type Todo = {
   status: 'open' | 'done'
 }
 
+type FailedMessage = {
+  id: number
+  user_id: number
+  source_type: 'group' | 'private'
+  source_id: string
+  message_id: string
+  raw_message: string
+  fail_stage: 'classify' | 'summarize' | string
+  error_text: string
+  created_at: number
+}
+
 type LoginResponse = {
   token: string
   expires_at: number
@@ -85,6 +97,23 @@ const senderLabel = (todo: Todo) => {
   return '发送者未知'
 }
 
+const failedSourceLabel = (item: FailedMessage) => {
+  if (item.source_type === 'group') {
+    return `群聊 ${item.source_id}`
+  }
+  return `私聊 ${item.source_id}`
+}
+
+const failedStageLabel = (stage: string) => {
+  if (stage === 'classify') {
+    return '分类失败'
+  }
+  if (stage === 'summarize') {
+    return '摘要失败'
+  }
+  return stage || '未知阶段'
+}
+
 function App() {
   const [token, setToken] = useState<string>(() => loadToken())
   const [password, setPassword] = useState('')
@@ -97,6 +126,10 @@ function App() {
   const [editingTitle, setEditingTitle] = useState('')
   const [editingDetail, setEditingDetail] = useState('')
   const [showCompleted, setShowCompleted] = useState(false)
+  const [activeView, setActiveView] = useState<'todos' | 'failed'>('todos')
+  const [failedMessages, setFailedMessages] = useState<FailedMessage[]>([])
+  const [failedLoading, setFailedLoading] = useState(false)
+  const [failedError, setFailedError] = useState('')
 
   const stats = useMemo(() => {
     const total = todos.length
@@ -132,9 +165,35 @@ function App() {
     }
   }
 
+  const fetchFailedMessages = async () => {
+    if (!token) return
+    setFailedError('')
+    setFailedLoading(true)
+    try {
+      const resp = await fetch('/api/failed-messages', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (resp.status === 401) {
+        clearToken()
+        setToken('')
+        return
+      }
+      if (!resp.ok) {
+        throw new Error('加载失败')
+      }
+      const data = await resp.json()
+      setFailedMessages(Array.isArray(data.failed_messages) ? data.failed_messages : [])
+    } catch (err) {
+      setFailedError('无法获取失败消息，请检查后端服务')
+    } finally {
+      setFailedLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (token) {
       void fetchTodos()
+      void fetchFailedMessages()
     }
   }, [token])
 
@@ -273,6 +332,8 @@ function App() {
     clearToken()
     setToken('')
     setTodos([])
+    setFailedMessages([])
+    setActiveView('todos')
   }
 
   return (
@@ -319,185 +380,239 @@ function App() {
         ) : (
           <>
             <div className="panel-header">
-              <div className="panel-title">待办列表</div>
+              <div className="panel-title">{activeView === 'todos' ? '待办列表' : 'LLM失败消息'}</div>
               <div className="panel-actions">
-                <button className="button secondary" onClick={() => void fetchTodos()} disabled={refreshing}>
-                  {refreshing ? '刷新中...' : '刷新'}
-                </button>
+                <div className="view-switch" role="tablist" aria-label="视图切换">
+                  <button
+                    className={`button secondary small ${activeView === 'todos' ? 'active' : ''}`}
+                    onClick={() => setActiveView('todos')}
+                  >
+                    待办列表
+                  </button>
+                  <button
+                    className={`button secondary small ${activeView === 'failed' ? 'active' : ''}`}
+                    onClick={() => setActiveView('failed')}
+                  >
+                    LLM失败消息
+                  </button>
+                </div>
+                {activeView === 'todos' ? (
+                  <button className="button secondary" onClick={() => void fetchTodos()} disabled={refreshing}>
+                    {refreshing ? '刷新中...' : '刷新'}
+                  </button>
+                ) : (
+                  <button className="button secondary" onClick={() => void fetchFailedMessages()} disabled={failedLoading}>
+                    {failedLoading ? '刷新中...' : '刷新'}
+                  </button>
+                )}
                 <button className="button" onClick={handleLogout}>
                   退出
                 </button>
               </div>
             </div>
-            {error ? <div className="error">{error}</div> : null}
-            {openTodos.length === 0 && doneTodos.length === 0 ? (
-              <div className="empty">暂时没有代办，等消息进来再看看。</div>
+
+            {activeView === 'todos' ? (
+              <>
+                {error ? <div className="error">{error}</div> : null}
+                {openTodos.length === 0 && doneTodos.length === 0 ? (
+                  <div className="empty">暂时没有代办，等消息进来再看看。</div>
+                ) : (
+                  <>
+                    <div className="todo-list">
+                      {openTodos.length === 0 ? (
+                        <div className="empty">暂无未完成事项。</div>
+                      ) : (
+                        openTodos.map((todo, index) => (
+                          <div
+                            className="todo-item"
+                            key={todo.id}
+                            style={{ animationDelay: `${index * 50}ms` }}
+                          >
+                            <div>
+                              {editingId === todo.id ? (
+                                <input
+                                  className="input todo-title-input"
+                                  value={editingTitle}
+                                  onChange={(event) => setEditingTitle(event.target.value)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                      void saveEdit(todo)
+                                    }
+                                    if (event.key === 'Escape') {
+                                      cancelEdit()
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <div className="todo-title">{todo.title}</div>
+                              )}
+                              {editingId === todo.id ? (
+                                <textarea
+                                  className="input todo-detail-input"
+                                  rows={3}
+                                  value={editingDetail}
+                                  onChange={(event) => setEditingDetail(event.target.value)}
+                                />
+                              ) : todo.detail ? (
+                                <div className="todo-detail">{todo.detail}</div>
+                              ) : todo.raw_message ? (
+                                <div className="todo-detail muted">{todo.raw_message}</div>
+                              ) : null}
+                              <div className="todo-meta">
+                                <span className="badge">待处理</span>
+                                <span>{sourceLabel(todo)}</span>
+                                <span>{senderLabel(todo)}</span>
+                                <span>接收时间：{formatTime(todo.created_at)}</span>
+                                <span>截止时间：{formatDeadline(todo.deadline_at)}</span>
+                              </div>
+                            </div>
+                            <div className="todo-actions">
+                              {editingId === todo.id ? (
+                                <>
+                                  <button className="button secondary small" onClick={() => void saveEdit(todo)}>
+                                    保存
+                                  </button>
+                                  <button className="button ghost small" onClick={cancelEdit}>
+                                    取消
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="status-text">完成后可撤销</span>
+                                  <button className="button secondary small" onClick={() => void toggleTodo(todo)}>
+                                    完成
+                                  </button>
+                                  <button className="button ghost small" onClick={() => startEdit(todo)}>
+                                    编辑
+                                  </button>
+                                  <button className="button danger small" onClick={() => void deleteTodo(todo)}>
+                                    删除
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <div className="collapse-header">
+                      <div className="collapse-title">
+                        已完成 {doneTodos.length} 条
+                      </div>
+                      <button
+                        className="button secondary small"
+                        onClick={() => setShowCompleted((prev) => !prev)}
+                        disabled={doneTodos.length === 0}
+                      >
+                        {showCompleted ? '收起' : '展开'}
+                      </button>
+                    </div>
+                    {showCompleted && doneTodos.length > 0 ? (
+                      <div className="todo-list compact">
+                        {doneTodos.map((todo, index) => (
+                          <div
+                            className="todo-item done"
+                            key={todo.id}
+                            style={{ animationDelay: `${index * 50}ms` }}
+                          >
+                            <div>
+                              {editingId === todo.id ? (
+                                <input
+                                  className="input todo-title-input"
+                                  value={editingTitle}
+                                  onChange={(event) => setEditingTitle(event.target.value)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                      void saveEdit(todo)
+                                    }
+                                    if (event.key === 'Escape') {
+                                      cancelEdit()
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <div className="todo-title">{todo.title}</div>
+                              )}
+                              {editingId === todo.id ? (
+                                <textarea
+                                  className="input todo-detail-input"
+                                  rows={3}
+                                  value={editingDetail}
+                                  onChange={(event) => setEditingDetail(event.target.value)}
+                                />
+                              ) : todo.detail ? (
+                                <div className="todo-detail">{todo.detail}</div>
+                              ) : todo.raw_message ? (
+                                <div className="todo-detail muted">{todo.raw_message}</div>
+                              ) : null}
+                              <div className="todo-meta">
+                                <span className="badge done">已完成</span>
+                                <span>{sourceLabel(todo)}</span>
+                                <span>{senderLabel(todo)}</span>
+                                <span>接收时间：{formatTime(todo.created_at)}</span>
+                                <span>截止时间：{formatDeadline(todo.deadline_at)}</span>
+                              </div>
+                            </div>
+                            <div className="todo-actions">
+                              {editingId === todo.id ? (
+                                <>
+                                  <button className="button secondary small" onClick={() => void saveEdit(todo)}>
+                                    保存
+                                  </button>
+                                  <button className="button ghost small" onClick={cancelEdit}>
+                                    取消
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="status-text">可以撤销完成</span>
+                                  <button className="button secondary small" onClick={() => void toggleTodo(todo)}>
+                                    撤销
+                                  </button>
+                                  <button className="button ghost small" onClick={() => startEdit(todo)}>
+                                    编辑
+                                  </button>
+                                  <button className="button danger small" onClick={() => void deleteTodo(todo)}>
+                                    删除
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </>
             ) : (
               <>
-                <div className="todo-list">
-                  {openTodos.length === 0 ? (
-                    <div className="empty">暂无未完成事项。</div>
-                  ) : (
-                    openTodos.map((todo, index) => (
-                      <div
-                        className="todo-item"
-                        key={todo.id}
-                        style={{ animationDelay: `${index * 50}ms` }}
-                      >
-                        <div>
-                          {editingId === todo.id ? (
-                            <input
-                              className="input todo-title-input"
-                              value={editingTitle}
-                              onChange={(event) => setEditingTitle(event.target.value)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter') {
-                                  void saveEdit(todo)
-                                }
-                                if (event.key === 'Escape') {
-                                  cancelEdit()
-                                }
-                              }}
-                            />
-                          ) : (
-                            <div className="todo-title">{todo.title}</div>
-                          )}
-                          {editingId === todo.id ? (
-                            <textarea
-                              className="input todo-detail-input"
-                              rows={3}
-                              value={editingDetail}
-                              onChange={(event) => setEditingDetail(event.target.value)}
-                            />
-                          ) : todo.detail ? (
-                            <div className="todo-detail">{todo.detail}</div>
-                          ) : todo.raw_message ? (
-                            <div className="todo-detail muted">{todo.raw_message}</div>
-                          ) : null}
-                          <div className="todo-meta">
-                            <span className="badge">待处理</span>
-                            <span>{sourceLabel(todo)}</span>
-                            <span>{senderLabel(todo)}</span>
-                            <span>接收时间：{formatTime(todo.created_at)}</span>
-                            <span>截止时间：{formatDeadline(todo.deadline_at)}</span>
-                          </div>
-                        </div>
-                        <div className="todo-actions">
-                          {editingId === todo.id ? (
-                            <>
-                              <button className="button secondary small" onClick={() => void saveEdit(todo)}>
-                                保存
-                              </button>
-                              <button className="button ghost small" onClick={cancelEdit}>
-                                取消
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <span className="status-text">完成后可撤销</span>
-                              <button className="button secondary small" onClick={() => void toggleTodo(todo)}>
-                                完成
-                              </button>
-                              <button className="button ghost small" onClick={() => startEdit(todo)}>
-                                编辑
-                              </button>
-                              <button className="button danger small" onClick={() => void deleteTodo(todo)}>
-                                删除
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-                <div className="collapse-header">
-                  <div className="collapse-title">
-                    已完成 {doneTodos.length} 条
-                  </div>
-                  <button
-                    className="button secondary small"
-                    onClick={() => setShowCompleted((prev) => !prev)}
-                    disabled={doneTodos.length === 0}
-                  >
-                    {showCompleted ? '收起' : '展开'}
-                  </button>
-                </div>
-                {showCompleted && doneTodos.length > 0 ? (
+                {failedError ? <div className="error">{failedError}</div> : null}
+                {failedMessages.length === 0 ? (
+                  <div className="empty">暂无 LLM 失败消息。</div>
+                ) : (
                   <div className="todo-list compact">
-                    {doneTodos.map((todo, index) => (
+                    {failedMessages.map((item, index) => (
                       <div
-                        className="todo-item done"
-                        key={todo.id}
-                        style={{ animationDelay: `${index * 50}ms` }}
+                        className="todo-item failed-item"
+                        key={item.id}
+                        style={{ animationDelay: `${index * 40}ms` }}
                       >
                         <div>
-                          {editingId === todo.id ? (
-                            <input
-                              className="input todo-title-input"
-                              value={editingTitle}
-                              onChange={(event) => setEditingTitle(event.target.value)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter') {
-                                  void saveEdit(todo)
-                                }
-                                if (event.key === 'Escape') {
-                                  cancelEdit()
-                                }
-                              }}
-                            />
-                          ) : (
-                            <div className="todo-title">{todo.title}</div>
-                          )}
-                          {editingId === todo.id ? (
-                            <textarea
-                              className="input todo-detail-input"
-                              rows={3}
-                              value={editingDetail}
-                              onChange={(event) => setEditingDetail(event.target.value)}
-                            />
-                          ) : todo.detail ? (
-                            <div className="todo-detail">{todo.detail}</div>
-                          ) : todo.raw_message ? (
-                            <div className="todo-detail muted">{todo.raw_message}</div>
-                          ) : null}
+                          <div className="todo-title">{item.raw_message || '（空消息）'}</div>
+                          <div className="todo-detail muted">错误：{item.error_text}</div>
                           <div className="todo-meta">
-                            <span className="badge done">已完成</span>
-                            <span>{sourceLabel(todo)}</span>
-                            <span>{senderLabel(todo)}</span>
-                            <span>接收时间：{formatTime(todo.created_at)}</span>
-                            <span>截止时间：{formatDeadline(todo.deadline_at)}</span>
+                            <span className="badge failed">{failedStageLabel(item.fail_stage)}</span>
+                            <span>{failedSourceLabel(item)}</span>
+                            <span>发送者：{item.user_id}</span>
+                            <span>接收时间：{formatTime(item.created_at)}</span>
+                            <span>消息ID：{item.message_id || '未知'}</span>
                           </div>
-                        </div>
-                        <div className="todo-actions">
-                          {editingId === todo.id ? (
-                            <>
-                              <button className="button secondary small" onClick={() => void saveEdit(todo)}>
-                                保存
-                              </button>
-                              <button className="button ghost small" onClick={cancelEdit}>
-                                取消
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <span className="status-text">可以撤销完成</span>
-                              <button className="button secondary small" onClick={() => void toggleTodo(todo)}>
-                                撤销
-                              </button>
-                              <button className="button ghost small" onClick={() => startEdit(todo)}>
-                                编辑
-                              </button>
-                              <button className="button danger small" onClick={() => void deleteTodo(todo)}>
-                                删除
-                              </button>
-                            </>
-                          )}
                         </div>
                       </div>
                     ))}
                   </div>
-                ) : null}
+                )}
               </>
             )}
           </>

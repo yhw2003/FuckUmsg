@@ -18,15 +18,28 @@ import (
 	"chat-assist-backend/internal/timeparse"
 )
 
+type llmClient interface {
+	Enabled() bool
+	ClassifyTodo(ctx context.Context, input string) (bool, error)
+	SummarizeTodo(ctx context.Context, input string) (string, string, error)
+	ExtractRelativeDate(ctx context.Context, input string, nowContext string) (llm.RelativeDateInfo, error)
+	RetryRelativeDate(ctx context.Context, input string, nowContext string, classicDate int64, previousLLM llm.RelativeDateInfo) (llm.RelativeDateInfo, error)
+}
+
+type listenerStore interface {
+	Create(ctx context.Context, input storage.TodoInput) (int64, error)
+	CreateLLMFailedMessage(ctx context.Context, input storage.LLMFailedMessageInput) (int64, error)
+}
+
 type Listener struct {
 	cfg    config.Config
 	selfID int64
-	store  *storage.Store
-	llm    *llm.Client
+	store  listenerStore
+	llm    llmClient
 	logger *zap.Logger
 }
 
-func NewListener(cfg config.Config, selfID int64, store *storage.Store, llm *llm.Client, logger *zap.Logger) *Listener {
+func NewListener(cfg config.Config, selfID int64, store listenerStore, llm llmClient, logger *zap.Logger) *Listener {
 	return &Listener{cfg: cfg, selfID: selfID, store: store, llm: llm, logger: logger}
 }
 
@@ -210,6 +223,7 @@ func (l *Listener) processEvent(ctx context.Context, event onebot.Event) {
 	isTodo, err := l.llm.ClassifyTodo(ctx, promptInput)
 	if err != nil {
 		l.logger.Error("llm classify failed", zap.Error(err))
+		l.persistFailedMessage(ctx, event, sourceID, messageText, "classify", err)
 		return
 	}
 	if !isTodo {
@@ -218,6 +232,7 @@ func (l *Listener) processEvent(ctx context.Context, event onebot.Event) {
 	title, detail, err := l.llm.SummarizeTodo(ctx, promptInput)
 	if err != nil {
 		l.logger.Error("llm summarize failed", zap.Error(err))
+		l.persistFailedMessage(ctx, event, sourceID, messageText, "summarize", err)
 		return
 	}
 
@@ -302,6 +317,23 @@ func (l *Listener) processEvent(ctx context.Context, event onebot.Event) {
 	}
 	if _, err := l.store.Create(ctx, input); err != nil {
 		l.logger.Error("create todo failed", zap.Error(err))
+	}
+}
+
+func (l *Listener) persistFailedMessage(ctx context.Context, event onebot.Event, sourceID string, messageText string, stage string, err error) {
+	messageID := fmt.Sprintf("%v", event.MessageID)
+	input := storage.LLMFailedMessageInput{
+		UserID:     event.UserID,
+		SourceType: event.MessageType,
+		SourceID:   sourceID,
+		MessageID:  messageID,
+		RawMessage: messageText,
+		FailStage:  stage,
+		ErrorText:  err.Error(),
+		CreatedAt:  event.Time,
+	}
+	if _, createErr := l.store.CreateLLMFailedMessage(ctx, input); createErr != nil {
+		l.logger.Warn("persist llm failed message failed", zap.Error(createErr))
 	}
 }
 

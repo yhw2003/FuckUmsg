@@ -24,3 +24,19 @@ type Todo struct {
 func (Todo) TableName() string {
 	return "todos"
 }
+
+type LLMFailedMessage struct {
+	ID         int64  `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserID     int64  `json:"user_id" gorm:"column:user_id;not null"`
+	SourceType string `json:"source_type" gorm:"column:source_type;not null"`
+	SourceID   string `json:"source_id" gorm:"column:source_id;not null"`
+	MessageID  string `json:"message_id" gorm:"column:message_id"`
+	RawMessage string `json:"raw_message" gorm:"column:raw_message;not null"`
+	FailStage  string `json:"fail_stage" gorm:"column:fail_stage;not null"`
+	ErrorText  string `json:"error_text" gorm:"column:error_text;type:text;not null"`
+	CreatedAt  int64  `json:"created_at" gorm:"column:created_at;not null;autoCreateTime:false"`
+}
+
+func (LLMFailedMessage) TableName() string {
+	return "llm_failed_messages"
+}
