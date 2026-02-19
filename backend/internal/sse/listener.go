@@ -182,7 +182,21 @@ func (l *Listener) processEvent(ctx context.Context, event onebot.Event) {
 		senderName = strings.TrimSpace(event.Sender.Nickname)
 	}
 
-	promptInput := fmt.Sprintf("来源: %s\n来源ID: %s\n发送者: %s(%d)\n时间: %d\n消息: %s", sourceLabel, sourceID, senderName, event.UserID, event.Time, messageText)
+	now := time.Now()
+	promptInput := fmt.Sprintf(
+		"来源: %s\n来源ID: %s\n发送者: %s(%d)\n消息时间戳: %d\n当前日期: %04d-%02d-%02d\n当前星期: %s\n当前Unix时间戳: %d\n消息: %s",
+		sourceLabel,
+		sourceID,
+		senderName,
+		event.UserID,
+		event.Time,
+		now.Year(),
+		now.Month(),
+		now.Day(),
+		weekdayToChinese(now.Weekday()),
+		now.Unix(),
+		messageText,
+	)
 
 	result, err := l.llm.ExtractTodo(ctx, promptInput)
 	if err != nil {
@@ -205,9 +219,31 @@ func (l *Listener) processEvent(ctx context.Context, event onebot.Event) {
 		RawMessage: messageText,
 		MessageID:  messageID,
 		CreatedAt:  event.Time,
+		DeadlineAt: result.DeadlineAt,
 	}
 	if _, err := l.store.Create(ctx, input); err != nil {
 		log.Printf("create todo failed: %v", err)
+	}
+}
+
+func weekdayToChinese(weekday time.Weekday) string {
+	switch weekday {
+	case time.Sunday:
+		return "星期日"
+	case time.Monday:
+		return "星期一"
+	case time.Tuesday:
+		return "星期二"
+	case time.Wednesday:
+		return "星期三"
+	case time.Thursday:
+		return "星期四"
+	case time.Friday:
+		return "星期五"
+	case time.Saturday:
+		return "星期六"
+	default:
+		return ""
 	}
 }
 

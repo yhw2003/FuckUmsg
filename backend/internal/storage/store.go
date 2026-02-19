@@ -32,6 +32,7 @@ type TodoInput struct {
 	RawMessage string
 	MessageID  string
 	CreatedAt  int64
+	DeadlineAt int64
 }
 
 func Open(path string) (*gorm.DB, error) {
@@ -71,6 +72,7 @@ func (s *Store) Create(ctx context.Context, input TodoInput) (int64, error) {
 		RawMessage: input.RawMessage,
 		MessageID:  input.MessageID,
 		CreatedAt:  input.CreatedAt,
+		DeadlineAt: input.DeadlineAt,
 		Status:     StatusOpen,
 	}
 	if err := s.db.WithContext(ctx).Create(&todo).Error; err != nil {

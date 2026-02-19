@@ -12,6 +12,7 @@ type Todo struct {
 	RawMessage  string `json:"raw_message" gorm:"column:raw_message;not null"`
 	MessageID   string `json:"message_id" gorm:"column:message_id"`
 	CreatedAt   int64  `json:"created_at" gorm:"column:created_at;not null;autoCreateTime:false"`
+	DeadlineAt  int64  `json:"deadline_at" gorm:"column:deadline_at;not null;default:0"`
 	CompletedAt *int64 `json:"completed_at" gorm:"column:completed_at"`
 	Status      string `json:"status" gorm:"column:status;not null"`
 }

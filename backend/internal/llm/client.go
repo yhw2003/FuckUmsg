@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -24,9 +25,10 @@ type Client struct {
 }
 
 type Result struct {
-	IsTodo bool   `json:"is_todo"`
-	Title  string `json:"title"`
-	Detail string `json:"detail"`
+	IsTodo     bool   `json:"is_todo"`
+	Title      string `json:"title"`
+	Detail     string `json:"detail"`
+	DeadlineAt int64  `json:"deadline_at"`
 }
 
 type ResponseEnvelope struct {
@@ -74,7 +76,7 @@ func (c *Client) ExtractTodo(ctx context.Context, input string) (Result, error) 
 		return result, errors.New("openai not configured")
 	}
 
-	expectedFormat := "IS_TODO: true|false\nTITLE: <待办标题或空>\nDETAIL: <待办详情或空>"
+	expectedFormat := "IS_TODO: true|false\nTITLE: <待办标题或空>\nDETAIL: <待办详情或空>\nDEADLINE_AT: <Unix秒级时间戳，无截止或无法确定时为0>"
 	systemPrompt, userPrompt, err := buildExtractPrompts(input, expectedFormat)
 	if err != nil {
 		return result, err
@@ -285,6 +287,18 @@ func parsePlainTodoOutput(text string) (Result, error) {
 		case "DETAIL":
 			result.Detail = strings.TrimSpace(value)
 			hasDetail = true
+		case "DEADLINE_AT":
+			deadlineText := strings.TrimSpace(value)
+			if deadlineText == "" {
+				result.DeadlineAt = 0
+				continue
+			}
+			deadlineAt, err := strconv.ParseInt(deadlineText, 10, 64)
+			if err != nil || deadlineAt < 0 {
+				result.DeadlineAt = 0
+				continue
+			}
+			result.DeadlineAt = deadlineAt
 		}
 	}
 
@@ -297,6 +311,7 @@ func parsePlainTodoOutput(text string) (Result, error) {
 	if !result.IsTodo {
 		result.Title = ""
 		result.Detail = ""
+		result.DeadlineAt = 0
 	}
 	return result, nil
 }

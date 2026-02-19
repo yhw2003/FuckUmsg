@@ -13,6 +13,7 @@ type Todo = {
   raw_message: string
   message_id: string
   created_at: number
+  deadline_at: number
   completed_at: number | null
   status: 'open' | 'done'
 }
@@ -59,6 +60,11 @@ const formatTime = (timestamp: number) => {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(timestamp * 1000))
+}
+
+const formatDeadline = (timestamp: number) => {
+  if (!timestamp) return '未设截止（具体时刻未定）'
+  return formatTime(timestamp)
 }
 
 const sourceLabel = (todo: Todo) => {
@@ -372,7 +378,8 @@ function App() {
                             <span className="badge">待处理</span>
                             <span>{sourceLabel(todo)}</span>
                             <span>{senderLabel(todo)}</span>
-                            <span>{formatTime(todo.created_at)}</span>
+                            <span>接收时间：{formatTime(todo.created_at)}</span>
+                            <span>截止时间：{formatDeadline(todo.deadline_at)}</span>
                           </div>
                         </div>
                         <div className="todo-actions">
@@ -458,7 +465,8 @@ function App() {
                             <span className="badge done">已完成</span>
                             <span>{sourceLabel(todo)}</span>
                             <span>{senderLabel(todo)}</span>
-                            <span>{formatTime(todo.created_at)}</span>
+                            <span>接收时间：{formatTime(todo.created_at)}</span>
+                            <span>截止时间：{formatDeadline(todo.deadline_at)}</span>
                           </div>
                         </div>
                         <div className="todo-actions">
