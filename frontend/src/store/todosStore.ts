@@ -3,7 +3,7 @@ import type { Todo } from '../types'
 import { forceUnauthenticated, useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 
-type TodosState = {
+interface TodosState {
   todos: Todo[]
   refreshing: boolean
   error: string

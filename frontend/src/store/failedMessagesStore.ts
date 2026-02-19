@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { FailedMessage } from '../types'
 import { forceUnauthenticated, useAuthStore } from './authStore'
 
-type FailedMessagesState = {
+interface FailedMessagesState {
   failedMessages: FailedMessage[]
   failedLoading: boolean
   failedError: string

@@ -1,4 +1,4 @@
-type HeroHeaderProps = {
+interface HeroHeaderProps {
   token: string
   total: number
   done: number

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { LoginResponse } from '../types'
 import { clearToken, loadToken, saveToken } from '../utils/auth'
 
-type AuthState = {
+interface AuthState {
   token: string
   password: string
   loading: boolean

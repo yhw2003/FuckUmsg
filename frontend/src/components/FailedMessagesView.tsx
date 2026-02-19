@@ -1,7 +1,7 @@
 import type { FailedMessage } from '../types'
 import FailedMessageItem from './FailedMessageItem'
 
-type FailedMessagesViewProps = {
+interface FailedMessagesViewProps {
   failedError: string
   failedMessages: FailedMessage[]
 }

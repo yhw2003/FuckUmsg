@@ -1,4 +1,4 @@
-type LoginPanelProps = {
+interface LoginPanelProps {
   password: string
   loading: boolean
   loginError: string

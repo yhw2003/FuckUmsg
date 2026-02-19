@@ -1,7 +1,7 @@
 import type { Todo } from '../types'
 import { formatDeadline, formatTime, senderLabel, sourceLabel } from '../utils/format'
 
-type TodoItemProps = {
+interface TodoItemProps {
   todo: Todo
   index: number
   isDone: boolean

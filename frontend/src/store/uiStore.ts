@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { ActiveView } from '../types'
 
-type UiState = {
+interface UiState {
   editingId: number | null
   editingTitle: string
   editingDetail: string

@@ -1,4 +1,4 @@
-export type Todo = {
+export interface Todo {
   id: number
   title: string
   detail: string
@@ -15,7 +15,7 @@ export type Todo = {
   status: 'open' | 'done'
 }
 
-export type FailedMessage = {
+export interface FailedMessage {
   id: number
   user_id: number
   source_type: 'group' | 'private'
@@ -27,7 +27,7 @@ export type FailedMessage = {
   created_at: number
 }
 
-export type LoginResponse = {
+export interface LoginResponse {
   token: string
   expires_at: number
   expires_in: number

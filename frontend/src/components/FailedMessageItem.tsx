@@ -1,7 +1,7 @@
 import type { FailedMessage } from '../types'
 import { failedSourceLabel, failedStageLabel, formatTime } from '../utils/format'
 
-type FailedMessageItemProps = {
+interface FailedMessageItemProps {
   item: FailedMessage
   index: number
 }

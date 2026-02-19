@@ -4,7 +4,7 @@ import { useFailedMessagesStore } from './failedMessagesStore'
 import { useTodosStore } from './todosStore'
 import { useUiStore } from './uiStore'
 
-type SessionState = {
+interface SessionState {
   logoutAndReset: () => void
 }
 

@@ -1,6 +1,6 @@
 import type { ActiveView } from '../types'
 
-type PanelHeaderProps = {
+interface PanelHeaderProps {
   activeView: ActiveView
   refreshing: boolean
   failedLoading: boolean

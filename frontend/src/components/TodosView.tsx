@@ -1,7 +1,7 @@
 import type { Todo } from '../types'
 import TodoItem from './TodoItem'
 
-type TodosViewProps = {
+interface TodosViewProps {
   error: string
   openTodos: Todo[]
   doneTodos: Todo[]
