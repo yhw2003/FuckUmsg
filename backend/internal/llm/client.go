@@ -31,6 +31,14 @@ type Result struct {
 	DeadlineAt int64  `json:"deadline_at"`
 }
 
+type RelativeDateInfo struct {
+	BaseDate        string `json:"base_date"`
+	OffsetDays      int    `json:"offset_days"`
+	WeekExpr        string `json:"week_expr"`
+	ResolvedDate    string `json:"resolved_date"`
+	RawReasoningTag string `json:"raw_reasoning_tag"`
+}
+
 type ResponseEnvelope struct {
 	OutputText string `json:"output_text"`
 	Output     []struct {
@@ -50,8 +58,14 @@ type ResponseEnvelope struct {
 var promptFS embed.FS
 
 var (
-	systemPromptTemplate = template.Must(template.ParseFS(promptFS, "prompts/system.tmpl"))
-	userPromptTemplate   = template.Must(template.ParseFS(promptFS, "prompts/user.tmpl"))
+	classifySystemTemplate            = template.Must(template.ParseFS(promptFS, "prompts/classify_system.tmpl"))
+	classifyUserTemplate              = template.Must(template.ParseFS(promptFS, "prompts/classify_user.tmpl"))
+	summarizeSystemTemplate           = template.Must(template.ParseFS(promptFS, "prompts/summarize_system.tmpl"))
+	summarizeUserTemplate             = template.Must(template.ParseFS(promptFS, "prompts/summarize_user.tmpl"))
+	relativeDateExtractSystemTemplate = template.Must(template.ParseFS(promptFS, "prompts/relative_date_extract_system.tmpl"))
+	relativeDateExtractUserTemplate   = template.Must(template.ParseFS(promptFS, "prompts/relative_date_extract_user.tmpl"))
+	relativeDateRetrySystemTemplate   = template.Must(template.ParseFS(promptFS, "prompts/relative_date_retry_system.tmpl"))
+	relativeDateRetryUserTemplate     = template.Must(template.ParseFS(promptFS, "prompts/relative_date_retry_user.tmpl"))
 )
 
 func NewClient(cfg config.Config) *Client {
@@ -70,49 +84,147 @@ func (c *Client) Enabled() bool {
 	return c.apiKey != "" && c.model != ""
 }
 
+func (c *Client) ClassifyTodo(ctx context.Context, input string) (bool, error) {
+	if !c.Enabled() {
+		return false, errors.New("openai not configured")
+	}
+	systemPrompt, err := renderPrompt(classifySystemTemplate, nil)
+	if err != nil {
+		return false, err
+	}
+	userPrompt, err := renderPrompt(classifyUserTemplate, map[string]string{"Input": input})
+	if err != nil {
+		return false, err
+	}
+	output, err := c.call(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return false, err
+	}
+	return parseClassifyOutput(output)
+}
+
+func (c *Client) SummarizeTodo(ctx context.Context, input string) (string, string, error) {
+	if !c.Enabled() {
+		return "", "", errors.New("openai not configured")
+	}
+	systemPrompt, err := renderPrompt(summarizeSystemTemplate, nil)
+	if err != nil {
+		return "", "", err
+	}
+	userPrompt, err := renderPrompt(summarizeUserTemplate, map[string]string{"Input": input})
+	if err != nil {
+		return "", "", err
+	}
+	output, err := c.call(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return "", "", err
+	}
+	return parseSummarizeOutput(output)
+}
+
+func (c *Client) ExtractRelativeDate(ctx context.Context, input string, nowContext string) (RelativeDateInfo, error) {
+	if !c.Enabled() {
+		return RelativeDateInfo{}, errors.New("openai not configured")
+	}
+	systemPrompt, err := renderPrompt(relativeDateExtractSystemTemplate, nil)
+	if err != nil {
+		return RelativeDateInfo{}, err
+	}
+	userPrompt, err := renderPrompt(relativeDateExtractUserTemplate, map[string]string{
+		"Input":      input,
+		"NowContext": nowContext,
+	})
+	if err != nil {
+		return RelativeDateInfo{}, err
+	}
+	output, err := c.call(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return RelativeDateInfo{}, err
+	}
+	return parseRelativeDateOutput(output)
+}
+
+func (c *Client) RetryRelativeDate(ctx context.Context, input string, nowContext string, classicDate int64, previousLLM RelativeDateInfo) (RelativeDateInfo, error) {
+	if !c.Enabled() {
+		return RelativeDateInfo{}, errors.New("openai not configured")
+	}
+	systemPrompt, err := renderPrompt(relativeDateRetrySystemTemplate, nil)
+	if err != nil {
+		return RelativeDateInfo{}, err
+	}
+	previousJSON, err := json.Marshal(previousLLM)
+	if err != nil {
+		return RelativeDateInfo{}, err
+	}
+	userPrompt, err := renderPrompt(relativeDateRetryUserTemplate, map[string]string{
+		"Input":       input,
+		"NowContext":  nowContext,
+		"ClassicDate": strconv.FormatInt(classicDate, 10),
+		"PreviousLLM": string(previousJSON),
+	})
+	if err != nil {
+		return RelativeDateInfo{}, err
+	}
+	output, err := c.call(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return RelativeDateInfo{}, err
+	}
+	return parseRelativeDateOutput(output)
+}
+
+// ExtractTodo is kept as a compatibility wrapper.
 func (c *Client) ExtractTodo(ctx context.Context, input string) (Result, error) {
 	var result Result
-	if !c.Enabled() {
-		return result, errors.New("openai not configured")
-	}
-
-	expectedFormat := "IS_TODO: true|false\nTITLE: <待办标题或空>\nDETAIL: <待办详情或空>\nDEADLINE_AT: <Unix秒级时间戳，无截止或无法确定时为0>"
-	systemPrompt, userPrompt, err := buildExtractPrompts(input, expectedFormat)
+	isTodo, err := c.ClassifyTodo(ctx, input)
 	if err != nil {
 		return result, err
 	}
+	if !isTodo {
+		return result, nil
+	}
+	title, detail, err := c.SummarizeTodo(ctx, input)
+	if err != nil {
+		return result, err
+	}
+	result.IsTodo = true
+	result.Title = title
+	result.Detail = detail
+	result.DeadlineAt = 0
+	return result, nil
+}
 
+func (c *Client) call(ctx context.Context, systemPrompt string, userPrompt string) (string, error) {
 	payload := map[string]interface{}{
 		"model":        c.model,
 		"instructions": systemPrompt,
-	}
-	payload["input"] = []interface{}{
-		map[string]interface{}{
-			"role": "user",
-			"content": []map[string]interface{}{
-				{
-					"type": "input_text",
-					"text": userPrompt,
+		"input": []interface{}{
+			map[string]interface{}{
+				"role": "user",
+				"content": []map[string]interface{}{
+					{
+						"type": "input_text",
+						"text": userPrompt,
+					},
 				},
 			},
 		},
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return result, err
+		return "", err
 	}
 
 	endpoint := buildOpenAIURL(c.baseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return result, err
+		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return result, err
+		return "", err
 	}
 	defer resp.Body.Close()
 
@@ -120,27 +232,26 @@ func (c *Client) ExtractTodo(ctx context.Context, input string) (Result, error) 
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		bodyText := strings.TrimSpace(string(bodyBytes))
 		if bodyText != "" {
-			return result, fmt.Errorf("openai status %d: %s", resp.StatusCode, bodyText)
+			return "", fmt.Errorf("openai status %d: %s", resp.StatusCode, bodyText)
 		}
-		return result, fmt.Errorf("openai status %d", resp.StatusCode)
+		return "", fmt.Errorf("openai status %d", resp.StatusCode)
 	}
 
 	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	bodyText := strings.TrimSpace(string(bodyBytes))
-
 	output := ""
 	var envelope ResponseEnvelope
 	if err := json.Unmarshal(bodyBytes, &envelope); err != nil {
 		output = extractTextFromSSE(bodyText, resp.Header.Get("Content-Type"))
 		if output == "" {
 			if bodyText != "" {
-				return result, fmt.Errorf("invalid response body: %s", bodyText)
+				return "", fmt.Errorf("invalid response body: %s", bodyText)
 			}
-			return result, errors.New("invalid response body")
+			return "", errors.New("invalid response body")
 		}
 	} else {
 		if envelope.Error != nil {
-			return result, fmt.Errorf("openai error: %s", envelope.Error.Message)
+			return "", fmt.Errorf("openai error: %s", envelope.Error.Message)
 		}
 		output = strings.TrimSpace(envelope.OutputText)
 		if output == "" {
@@ -148,17 +259,9 @@ func (c *Client) ExtractTodo(ctx context.Context, input string) (Result, error) 
 		}
 	}
 	if output == "" {
-		return result, errors.New("empty openai output")
+		return "", errors.New("empty openai output")
 	}
-
-	parsed, err := parsePlainTodoOutput(output)
-	if err != nil {
-		return result, fmt.Errorf("invalid llm output: %s\nexpected format:\n%s", output, expectedFormat)
-	}
-
-	result = parsed
-
-	return result, nil
+	return output, nil
 }
 
 func buildOpenAIURL(base string) string {
@@ -167,21 +270,6 @@ func buildOpenAIURL(base string) string {
 		return trimmed + "/responses"
 	}
 	return trimmed + "/v1/responses"
-}
-
-func buildExtractPrompts(input string, expectedFormat string) (string, string, error) {
-	systemPrompt, err := renderPrompt(systemPromptTemplate, nil)
-	if err != nil {
-		return "", "", err
-	}
-	userPrompt, err := renderPrompt(userPromptTemplate, map[string]string{
-		"ExpectedFormat": expectedFormat,
-		"Input":          input,
-	})
-	if err != nil {
-		return "", "", err
-	}
-	return systemPrompt, userPrompt, nil
 }
 
 func renderPrompt(tmpl *template.Template, data interface{}) (string, error) {
@@ -251,84 +339,72 @@ func extractTextFromSSE(body string, contentType string) string {
 	return strings.TrimSpace(builder.String())
 }
 
-func parsePlainTodoOutput(text string) (Result, error) {
-	var result Result
-	hasTodo := false
-	hasTitle := false
-	hasDetail := false
-
-	lines := strings.Split(text, "\n")
-	for _, raw := range lines {
-		line := strings.TrimSpace(raw)
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, "```") {
-			continue
-		}
-		key, value, ok := splitKV(line)
-		if !ok {
-			continue
-		}
-		switch strings.ToUpper(key) {
-		case "IS_TODO":
-			value = strings.ToLower(strings.TrimSpace(value))
-			if value == "true" {
-				result.IsTodo = true
-			} else if value == "false" {
-				result.IsTodo = false
-			} else {
-				return result, fmt.Errorf("invalid is_todo value: %s", value)
-			}
-			hasTodo = true
-		case "TITLE":
-			result.Title = strings.TrimSpace(value)
-			hasTitle = true
-		case "DETAIL":
-			result.Detail = strings.TrimSpace(value)
-			hasDetail = true
-		case "DEADLINE_AT":
-			deadlineText := strings.TrimSpace(value)
-			if deadlineText == "" {
-				result.DeadlineAt = 0
-				continue
-			}
-			deadlineAt, err := strconv.ParseInt(deadlineText, 10, 64)
-			if err != nil || deadlineAt < 0 {
-				result.DeadlineAt = 0
-				continue
-			}
-			result.DeadlineAt = deadlineAt
-		}
+func parseClassifyOutput(text string) (bool, error) {
+	var payload struct {
+		IsTodo *bool `json:"is_todo"`
 	}
-
-	if !hasTodo || !hasTitle || !hasDetail {
-		return result, errors.New("missing required fields")
+	if err := parseJSONPayload(text, &payload); err != nil {
+		return false, err
 	}
-	if result.IsTodo && result.Title == "" {
-		return result, errors.New("title is empty for todo")
+	if payload.IsTodo == nil {
+		return false, errors.New("missing is_todo")
 	}
-	if !result.IsTodo {
-		result.Title = ""
-		result.Detail = ""
-		result.DeadlineAt = 0
-	}
-	return result, nil
+	return *payload.IsTodo, nil
 }
 
-func splitKV(line string) (string, string, bool) {
-	idx := strings.IndexRune(line, ':')
-	alt := strings.IndexRune(line, '：')
-	if idx == -1 || (alt != -1 && alt < idx) {
-		idx = alt
+func parseSummarizeOutput(text string) (string, string, error) {
+	var payload struct {
+		Title  string `json:"title"`
+		Detail string `json:"detail"`
 	}
-	if idx == -1 {
-		return "", "", false
+	if err := parseJSONPayload(text, &payload); err != nil {
+		return "", "", err
 	}
-	key := strings.TrimSpace(line[:idx])
-	value := strings.TrimSpace(line[idx+1:])
-	if key == "" {
-		return "", "", false
-	}
-	return key, value, true
+	return strings.TrimSpace(payload.Title), strings.TrimSpace(payload.Detail), nil
 }
+
+func parseRelativeDateOutput(text string) (RelativeDateInfo, error) {
+	var payload RelativeDateInfo
+	if err := parseJSONPayload(text, &payload); err != nil {
+		return RelativeDateInfo{}, err
+	}
+	payload.BaseDate = strings.TrimSpace(payload.BaseDate)
+	payload.WeekExpr = strings.TrimSpace(payload.WeekExpr)
+	payload.ResolvedDate = strings.TrimSpace(payload.ResolvedDate)
+	payload.RawReasoningTag = strings.TrimSpace(payload.RawReasoningTag)
+	return payload, nil
+}
+
+func parseJSONPayload(text string, out interface{}) error {
+	candidate := strings.TrimSpace(text)
+	candidate = strings.TrimPrefix(candidate, "```json")
+	candidate = strings.TrimPrefix(candidate, "```")
+	candidate = strings.TrimSuffix(candidate, "```")
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return errors.New("empty payload")
+	}
+
+	if err := json.Unmarshal([]byte(candidate), out); err == nil {
+		return nil
+	}
+
+	if err := decodeFirstJSONObject(candidate, out); err == nil {
+		return nil
+	}
+
+	start := strings.Index(candidate, "{")
+	if start == -1 {
+		return errors.New("invalid json payload")
+	}
+	if err := decodeFirstJSONObject(candidate[start:], out); err != nil {
+		return errors.New("invalid json payload")
+	}
+	return nil
+}
+
+func decodeFirstJSONObject(text string, out interface{}) error {
+	decoder := json.NewDecoder(strings.NewReader(text))
+	return decoder.Decode(out)
+}
+

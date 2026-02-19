@@ -15,6 +15,7 @@ import (
 	"chat-assist-backend/internal/llm"
 	"chat-assist-backend/internal/onebot"
 	"chat-assist-backend/internal/storage"
+	"chat-assist-backend/internal/timeparse"
 )
 
 type Listener struct {
@@ -91,6 +92,7 @@ func (l *Listener) consume(ctx context.Context, taskCh chan<- onebot.Event) erro
 				l.handleEvent(ctx, payload, taskCh)
 			}
 			eventType = ""
+			_ = eventType
 			continue
 		}
 		if strings.HasPrefix(line, ":") {
@@ -98,7 +100,6 @@ func (l *Listener) consume(ctx context.Context, taskCh chan<- onebot.Event) erro
 		}
 		if strings.HasPrefix(line, "event:") {
 			eventType = strings.TrimSpace(line[len("event:"):])
-			_ = eventType
 			continue
 		}
 		if strings.HasPrefix(line, "data:") {
@@ -168,19 +169,15 @@ func (l *Listener) processEvent(ctx context.Context, event onebot.Event) {
 	if strings.TrimSpace(messageText) == "" {
 		return
 	}
+	if l.llm == nil || !l.llm.Enabled() {
+		return
+	}
+
 	sourceLabel := "私聊"
 	sourceID := fmt.Sprintf("%d", event.UserID)
 	if event.MessageType == "group" {
 		sourceLabel = "群聊"
 		sourceID = fmt.Sprintf("%d", event.GroupID)
-	}
-	l.logger.Debug("qq message received",
-		zap.String("source_label", sourceLabel),
-		zap.String("source_id", sourceID),
-		zap.String("preview", messagePreview(messageText, 30)),
-	)
-	if l.llm == nil || !l.llm.Enabled() {
-		return
 	}
 
 	senderName := strings.TrimSpace(event.Sender.Card)
@@ -190,56 +187,152 @@ func (l *Listener) processEvent(ctx context.Context, event onebot.Event) {
 
 	now := time.Now()
 	weekContext := weekInterpretationContext(l.cfg)
-	promptInput := fmt.Sprintf(
-		"来源: %s\n来源ID: %s\n发送者: %s(%d)\n消息时间戳: %d\n当前日期: %04d-%02d-%02d\n当前星期: %s\n当前Unix时间戳: %d\n%s\n消息: %s",
-		sourceLabel,
-		sourceID,
-		senderName,
-		event.UserID,
-		event.Time,
+	nowContext := fmt.Sprintf(
+		"当前日期: %04d-%02d-%02d\n当前星期: %s\n当前Unix时间戳: %d\n%s",
 		now.Year(),
 		now.Month(),
 		now.Day(),
 		weekdayToChinese(now.Weekday()),
 		now.Unix(),
 		weekContext,
+	)
+	promptInput := fmt.Sprintf(
+		"来源: %s\n来源ID: %s\n发送者: %s(%d)\n消息时间戳: %d\n%s\n消息: %s",
+		sourceLabel,
+		sourceID,
+		senderName,
+		event.UserID,
+		event.Time,
+		nowContext,
 		messageText,
 	)
 
-	result, err := l.llm.ExtractTodo(ctx, promptInput)
+	isTodo, err := l.llm.ClassifyTodo(ctx, promptInput)
 	if err != nil {
-		l.logger.Error("llm extract failed", zap.Error(err))
+		l.logger.Error("llm classify failed", zap.Error(err))
 		return
 	}
-	if !result.IsTodo {
+	if !isTodo {
 		return
 	}
+	title, detail, err := l.llm.SummarizeTodo(ctx, promptInput)
+	if err != nil {
+		l.logger.Error("llm summarize failed", zap.Error(err))
+		return
+	}
+
+	dateCtx := timeparse.Context{
+		Now:         now,
+		WeekMode:    l.cfg.Calendar.WeekMode,
+		Week1Monday: l.cfg.Calendar.Week1Monday,
+		Location:    time.Local,
+	}
+
+	relative1, err := l.llm.ExtractRelativeDate(ctx, messageText, nowContext)
+	if err != nil {
+		l.logger.Warn("llm relative date extract failed", zap.Error(err))
+		relative1 = llm.RelativeDateInfo{}
+	}
+	llmDate1 := timeparse.ComputeFromRelativeInfo(relative1, dateCtx).DateAt
+	classicDate := timeparse.ComputeClassicDate(messageText, dateCtx).DateAt
+
+	l.logger.Debug("date dual-track",
+		zap.String("date_stage", "extract"),
+		zap.Int64("llm_date_1", llmDate1),
+		zap.Int64("classic_date_1", classicDate),
+	)
+
+	llmDate2 := int64(0)
+	hasRetry := false
+	if llmDate1 != classicDate {
+		l.logger.Debug("date dual-track",
+			zap.String("date_stage", "compare"),
+			zap.Int64("llm_date_1", llmDate1),
+			zap.Int64("classic_date_1", classicDate),
+		)
+		relative2, retryErr := l.llm.RetryRelativeDate(ctx, messageText, nowContext, classicDate, relative1)
+		if retryErr != nil {
+			l.logger.Warn("llm relative date retry failed", zap.Error(retryErr))
+		} else {
+			hasRetry = true
+			llmDate2 = timeparse.ComputeFromRelativeInfo(relative2, dateCtx).DateAt
+			l.logger.Debug("date dual-track",
+				zap.String("date_stage", "retry"),
+				zap.Int64("llm_date_1", llmDate1),
+				zap.Int64("classic_date_1", classicDate),
+				zap.Int64("llm_date_2", llmDate2),
+			)
+		}
+	}
+
+	finalDeadline, deadlineLLM, deadlineClassic, deadlineConflict, deadlineNote := finalizeDateDecision(classicDate, llmDate1, hasRetry, llmDate2, time.Local)
+
 	l.logger.Info("todo extracted",
-		zap.String("title", result.Title),
-		zap.String("detail", result.Detail),
+		zap.String("title", title),
+		zap.String("detail", detail),
 		zap.String("source_label", sourceLabel),
 		zap.String("source_id", sourceID),
 		zap.String("sender_name", senderName),
 		zap.Int64("sender_id", event.UserID),
 		zap.Any("message_id", event.MessageID),
+		zap.String("date_stage", "finalize"),
+		zap.Int64("llm_date_1", llmDate1),
+		zap.Int64("classic_date_1", classicDate),
+		zap.Int64("llm_date_2", llmDate2),
+		zap.Bool("conflict", deadlineConflict),
+		zap.Int64("final_deadline_at", finalDeadline),
 	)
 
 	messageID := fmt.Sprintf("%v", event.MessageID)
 	input := storage.TodoInput{
-		Title:      result.Title,
-		Detail:     result.Detail,
-		SourceType: event.MessageType,
-		SourceID:   sourceID,
-		SourceName: senderName,
-		SenderID:   event.UserID,
-		RawMessage: messageText,
-		MessageID:  messageID,
-		CreatedAt:  event.Time,
-		DeadlineAt: result.DeadlineAt,
+		Title:             title,
+		Detail:            detail,
+		SourceType:        event.MessageType,
+		SourceID:          sourceID,
+		SourceName:        senderName,
+		SenderID:          event.UserID,
+		RawMessage:        messageText,
+		MessageID:         messageID,
+		CreatedAt:         event.Time,
+		DeadlineAt:        finalDeadline,
+		DeadlineLLMAt:     deadlineLLM,
+		DeadlineClassicAt: deadlineClassic,
+		DeadlineConflict:  deadlineConflict,
+		DeadlineNote:      deadlineNote,
 	}
 	if _, err := l.store.Create(ctx, input); err != nil {
 		l.logger.Error("create todo failed", zap.Error(err))
 	}
+}
+
+func finalizeDateDecision(classicDate int64, llmDate1 int64, hasRetry bool, llmDate2 int64, loc *time.Location) (int64, int64, int64, bool, string) {
+	if llmDate1 == classicDate {
+		return llmDate1, llmDate1, classicDate, false, ""
+	}
+	llmSelected := llmDate1
+	if hasRetry {
+		llmSelected = llmDate2
+		if llmDate2 == classicDate {
+			return llmDate2, llmDate2, classicDate, false, ""
+		}
+	}
+	note := fmt.Sprintf(
+		"未能确认的日期：%s(llm) 或 %s(classic)",
+		formatMonthDay(llmSelected, loc),
+		formatMonthDay(classicDate, loc),
+	)
+	return 0, llmSelected, classicDate, true, note
+}
+
+func formatMonthDay(ts int64, loc *time.Location) string {
+	if ts <= 0 {
+		return "未知日期"
+	}
+	if loc == nil {
+		loc = time.Local
+	}
+	t := time.Unix(ts, 0).In(loc)
+	return fmt.Sprintf("%d月%d日", int(t.Month()), t.Day())
 }
 
 func weekInterpretationContext(cfg config.Config) string {

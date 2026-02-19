@@ -2,53 +2,47 @@ package llm
 
 import "testing"
 
-func TestParsePlainTodoOutput_LegacyThreeLines(t *testing.T) {
-	text := "IS_TODO: true\nTITLE: 明天提交周报\nDETAIL: 请明天提交周报给我"
-
-	result, err := parsePlainTodoOutput(text)
+func TestParseClassifyOutput(t *testing.T) {
+	v, err := parseClassifyOutput(`{"is_todo": true}`)
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
 	}
-	if !result.IsTodo {
-		t.Fatalf("expected todo=true")
-	}
-	if result.Title != "明天提交周报" {
-		t.Fatalf("unexpected title: %q", result.Title)
-	}
-	if result.Detail != "请明天提交周报给我" {
-		t.Fatalf("unexpected detail: %q", result.Detail)
-	}
-	if result.DeadlineAt != 0 {
-		t.Fatalf("expected deadline_at=0, got %d", result.DeadlineAt)
+	if !v {
+		t.Fatalf("expected true")
 	}
 }
 
-func TestParsePlainTodoOutput_FourLinesWithDeadline(t *testing.T) {
-	text := "IS_TODO: true\nTITLE: 明天14点开会\nDETAIL: 明天14点准时参加会议\nDEADLINE_AT: 1760000000"
-
-	result, err := parsePlainTodoOutput(text)
+func TestParseSummarizeOutput(t *testing.T) {
+	title, detail, err := parseSummarizeOutput(`{"title":"明天提交周报","detail":"请明天提交周报给我"}`)
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
 	}
-	if !result.IsTodo {
-		t.Fatalf("expected todo=true")
+	if title != "明天提交周报" {
+		t.Fatalf("unexpected title: %q", title)
 	}
-	if result.DeadlineAt != 1760000000 {
-		t.Fatalf("expected deadline_at=1760000000, got %d", result.DeadlineAt)
+	if detail != "请明天提交周报给我" {
+		t.Fatalf("unexpected detail: %q", detail)
 	}
 }
 
-func TestParsePlainTodoOutput_InvalidDeadlineFallback(t *testing.T) {
-	text := "IS_TODO: true\nTITLE: 周五前完成\nDETAIL: 本周五之前完成并反馈\nDEADLINE_AT: not-a-number"
-
-	result, err := parsePlainTodoOutput(text)
+func TestParseRelativeDateOutput(t *testing.T) {
+	output := `{"base_date":"2026-02-19","offset_days":2,"week_expr":"","resolved_date":"2026-02-21","raw_reasoning_tag":"relative+2"}`
+	info, err := parseRelativeDateOutput(output)
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
 	}
-	if !result.IsTodo {
-		t.Fatalf("expected todo=true")
+	if info.BaseDate != "2026-02-19" || info.OffsetDays != 2 || info.ResolvedDate != "2026-02-21" {
+		t.Fatalf("unexpected relative info: %+v", info)
 	}
-	if result.DeadlineAt != 0 {
-		t.Fatalf("expected deadline_at fallback to 0, got %d", result.DeadlineAt)
+}
+
+func TestParseRelativeDateOutput_WithCodeFence(t *testing.T) {
+	output := "```json\n{\"base_date\":\"\",\"offset_days\":0,\"week_expr\":\"第13周周二\",\"resolved_date\":\"2026-05-12\",\"raw_reasoning_tag\":\"week_expr\"}\n```"
+	info, err := parseRelativeDateOutput(output)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if info.WeekExpr != "第13周周二" {
+		t.Fatalf("unexpected week_expr: %q", info.WeekExpr)
 	}
 }

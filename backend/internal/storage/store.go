@@ -23,16 +23,20 @@ type Store struct {
 }
 
 type TodoInput struct {
-	Title      string
-	Detail     string
-	SourceType string
-	SourceID   string
-	SourceName string
-	SenderID   int64
-	RawMessage string
-	MessageID  string
-	CreatedAt  int64
-	DeadlineAt int64
+	Title             string
+	Detail            string
+	SourceType        string
+	SourceID          string
+	SourceName        string
+	SenderID          int64
+	RawMessage        string
+	MessageID         string
+	CreatedAt         int64
+	DeadlineAt        int64
+	DeadlineLLMAt     int64
+	DeadlineClassicAt int64
+	DeadlineConflict  bool
+	DeadlineNote      string
 }
 
 func Open(path string) (*gorm.DB, error) {
@@ -63,17 +67,21 @@ func (s *Store) Create(ctx context.Context, input TodoInput) (int64, error) {
 		return 0, errors.New("title is required")
 	}
 	todo := model.Todo{
-		Title:      input.Title,
-		Detail:     input.Detail,
-		SourceType: input.SourceType,
-		SourceID:   input.SourceID,
-		SourceName: input.SourceName,
-		SenderID:   input.SenderID,
-		RawMessage: input.RawMessage,
-		MessageID:  input.MessageID,
-		CreatedAt:  input.CreatedAt,
-		DeadlineAt: input.DeadlineAt,
-		Status:     StatusOpen,
+		Title:             input.Title,
+		Detail:            input.Detail,
+		SourceType:        input.SourceType,
+		SourceID:          input.SourceID,
+		SourceName:        input.SourceName,
+		SenderID:          input.SenderID,
+		RawMessage:        input.RawMessage,
+		MessageID:         input.MessageID,
+		CreatedAt:         input.CreatedAt,
+		DeadlineAt:        input.DeadlineAt,
+		DeadlineLLMAt:     input.DeadlineLLMAt,
+		DeadlineClassicAt: input.DeadlineClassicAt,
+		DeadlineConflict:  input.DeadlineConflict,
+		DeadlineNote:      input.DeadlineNote,
+		Status:            StatusOpen,
 	}
 	if err := s.db.WithContext(ctx).Create(&todo).Error; err != nil {
 		return 0, err
