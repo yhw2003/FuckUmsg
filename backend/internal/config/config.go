@@ -28,6 +28,10 @@ type Config struct {
 		Model          string `toml:"model"`
 		TimeoutSeconds int    `toml:"timeout_seconds"`
 	} `toml:"openai"`
+	Calendar struct {
+		WeekMode    string `toml:"week_mode"`
+		Week1Monday string `toml:"week1_monday"`
+	} `toml:"calendar"`
 	Storage struct {
 		SQLitePath string `toml:"sqlite_path"`
 	} `toml:"storage"`
@@ -45,6 +49,9 @@ func LoadConfig(path string) (Config, error) {
 		return cfg, err
 	}
 	applyDefaults(&cfg)
+	if err := validateCalendar(&cfg); err != nil {
+		return cfg, err
+	}
 	return cfg, nil
 }
 
@@ -64,9 +71,38 @@ func applyDefaults(cfg *Config) {
 	if cfg.OpenAI.TimeoutSeconds == 0 {
 		cfg.OpenAI.TimeoutSeconds = 30
 	}
+	if strings.TrimSpace(cfg.Calendar.WeekMode) == "" {
+		cfg.Calendar.WeekMode = "academic"
+	}
 	if strings.TrimSpace(cfg.Storage.SQLitePath) == "" {
 		cfg.Storage.SQLitePath = "./data.db"
 	}
+}
+
+func validateCalendar(cfg *Config) error {
+	weekMode := strings.ToLower(strings.TrimSpace(cfg.Calendar.WeekMode))
+	if weekMode != "academic" && weekMode != "natural" {
+		return errors.New("calendar.week_mode must be one of: academic, natural")
+	}
+
+	week1Monday := strings.TrimSpace(cfg.Calendar.Week1Monday)
+	if weekMode == "academic" {
+		if week1Monday == "" {
+			return errors.New("calendar.week1_monday is required when calendar.week_mode=academic, format: YYYY-MM-DD")
+		}
+	}
+	if week1Monday == "" {
+		return nil
+	}
+
+	date, err := time.Parse("2006-01-02", week1Monday)
+	if err != nil {
+		return errors.New("calendar.week1_monday must be in YYYY-MM-DD format")
+	}
+	if date.Weekday() != time.Monday {
+		return errors.New("calendar.week1_monday must be a Monday")
+	}
+	return nil
 }
 
 func ResolveConfigPath(arg string) string {

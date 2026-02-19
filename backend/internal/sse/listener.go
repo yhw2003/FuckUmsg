@@ -189,8 +189,9 @@ func (l *Listener) processEvent(ctx context.Context, event onebot.Event) {
 	}
 
 	now := time.Now()
+	weekContext := weekInterpretationContext(l.cfg)
 	promptInput := fmt.Sprintf(
-		"来源: %s\n来源ID: %s\n发送者: %s(%d)\n消息时间戳: %d\n当前日期: %04d-%02d-%02d\n当前星期: %s\n当前Unix时间戳: %d\n消息: %s",
+		"来源: %s\n来源ID: %s\n发送者: %s(%d)\n消息时间戳: %d\n当前日期: %04d-%02d-%02d\n当前星期: %s\n当前Unix时间戳: %d\n%s\n消息: %s",
 		sourceLabel,
 		sourceID,
 		senderName,
@@ -201,6 +202,7 @@ func (l *Listener) processEvent(ctx context.Context, event onebot.Event) {
 		now.Day(),
 		weekdayToChinese(now.Weekday()),
 		now.Unix(),
+		weekContext,
 		messageText,
 	)
 
@@ -238,6 +240,13 @@ func (l *Listener) processEvent(ctx context.Context, event onebot.Event) {
 	if _, err := l.store.Create(ctx, input); err != nil {
 		l.logger.Error("create todo failed", zap.Error(err))
 	}
+}
+
+func weekInterpretationContext(cfg config.Config) string {
+	if strings.EqualFold(strings.TrimSpace(cfg.Calendar.WeekMode), "natural") {
+		return "周解释策略: natural（自然周）\n当消息出现“第N周周X/13周星期二”时，按当前日期所在自然周体系解释，不使用学期周基准"
+	}
+	return fmt.Sprintf("周解释策略: academic（学周体系）\n当消息出现“第N周周X/13周星期二”时，按学期周解释\n当前学期第1周的星期一: %s", cfg.Calendar.Week1Monday)
 }
 
 func weekdayToChinese(weekday time.Weekday) string {
