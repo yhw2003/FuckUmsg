@@ -5,10 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"time"
+
+	"go.uber.org/zap"
 
 	"chat-assist-backend/internal/config"
 	"chat-assist-backend/internal/llm"
@@ -21,26 +22,27 @@ type Listener struct {
 	selfID int64
 	store  *storage.Store
 	llm    *llm.Client
+	logger *zap.Logger
 }
 
-func NewListener(cfg config.Config, selfID int64, store *storage.Store, llm *llm.Client) *Listener {
-	return &Listener{cfg: cfg, selfID: selfID, store: store, llm: llm}
+func NewListener(cfg config.Config, selfID int64, store *storage.Store, llm *llm.Client, logger *zap.Logger) *Listener {
+	return &Listener{cfg: cfg, selfID: selfID, store: store, llm: llm, logger: logger}
 }
 
 func (l *Listener) Start(ctx context.Context) {
 	if strings.TrimSpace(l.cfg.OneBot.SSEURL) == "" {
-		log.Println("onebot sse_url not set, skip listener")
+		l.logger.Info("onebot sse_url not set, skip listener")
 		return
 	}
 
 	taskCh := make(chan onebot.Event, 100)
 	go l.worker(ctx, taskCh)
 
-	log.Printf("sse connecting: %s", l.cfg.OneBot.SSEURL)
+	l.logger.Info("sse connecting", zap.String("url", l.cfg.OneBot.SSEURL))
 	backoff := time.Second
 	for {
 		if err := l.consume(ctx, taskCh); err != nil {
-			log.Printf("sse disconnected: %v", err)
+			l.logger.Warn("sse disconnected", zap.Error(err))
 		}
 		select {
 		case <-ctx.Done():
@@ -71,7 +73,7 @@ func (l *Listener) consume(ctx context.Context, taskCh chan<- onebot.Event) erro
 		resp.Body.Close()
 		return fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
-	log.Printf("sse connected: %s", l.cfg.OneBot.SSEURL)
+	l.logger.Info("sse connected", zap.String("url", l.cfg.OneBot.SSEURL))
 	defer resp.Body.Close()
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -125,28 +127,28 @@ func (l *Listener) handleEvent(ctx context.Context, payload string, taskCh chan<
 	}
 	var event onebot.Event
 	if err := json.Unmarshal([]byte(payload), &event); err != nil {
-		log.Printf("sse payload unmarshal failed: %v payload=%q", err, messagePreview(payload, 200))
+		l.logger.Warn("sse payload unmarshal failed", zap.Error(err), zap.String("payload_preview", messagePreview(payload, 200)))
 		return
 	}
 	if event.PostType != "message" {
 		if event.PostType != "" && event.PostType != "meta_event" {
-			log.Printf("sse event ignored: post_type=%s", event.PostType)
+			l.logger.Debug("sse event ignored", zap.String("post_type", event.PostType))
 		}
 		return
 	}
 	if l.selfID != 0 && event.UserID == l.selfID {
-		log.Printf("sse message ignored: self_id=%d user_id=%d", l.selfID, event.UserID)
+		l.logger.Debug("sse message ignored", zap.Int64("self_id", l.selfID), zap.Int64("user_id", event.UserID))
 		return
 	}
 	if event.MessageType != "group" && event.MessageType != "private" {
-		log.Printf("sse message ignored: message_type=%s", event.MessageType)
+		l.logger.Debug("sse message ignored", zap.String("message_type", event.MessageType))
 		return
 	}
 
 	select {
 	case taskCh <- event:
 	default:
-		log.Println("todo queue full, dropping event")
+		l.logger.Warn("todo queue full, dropping event")
 	}
 }
 
@@ -172,7 +174,11 @@ func (l *Listener) processEvent(ctx context.Context, event onebot.Event) {
 		sourceLabel = "群聊"
 		sourceID = fmt.Sprintf("%d", event.GroupID)
 	}
-	log.Printf("qq message received: source=%s:%s preview=%q", sourceLabel, sourceID, messagePreview(messageText, 30))
+	l.logger.Debug("qq message received",
+		zap.String("source_label", sourceLabel),
+		zap.String("source_id", sourceID),
+		zap.String("preview", messagePreview(messageText, 30)),
+	)
 	if l.llm == nil || !l.llm.Enabled() {
 		return
 	}
@@ -200,13 +206,21 @@ func (l *Listener) processEvent(ctx context.Context, event onebot.Event) {
 
 	result, err := l.llm.ExtractTodo(ctx, promptInput)
 	if err != nil {
-		log.Printf("llm extract failed: %v", err)
+		l.logger.Error("llm extract failed", zap.Error(err))
 		return
 	}
 	if !result.IsTodo {
 		return
 	}
-	log.Printf("todo extracted: title=%q detail=%q source=%s:%s sender=%s(%d) message_id=%v", result.Title, result.Detail, sourceLabel, sourceID, senderName, event.UserID, event.MessageID)
+	l.logger.Info("todo extracted",
+		zap.String("title", result.Title),
+		zap.String("detail", result.Detail),
+		zap.String("source_label", sourceLabel),
+		zap.String("source_id", sourceID),
+		zap.String("sender_name", senderName),
+		zap.Int64("sender_id", event.UserID),
+		zap.Any("message_id", event.MessageID),
+	)
 
 	messageID := fmt.Sprintf("%v", event.MessageID)
 	input := storage.TodoInput{
@@ -222,7 +236,7 @@ func (l *Listener) processEvent(ctx context.Context, event onebot.Event) {
 		DeadlineAt: result.DeadlineAt,
 	}
 	if _, err := l.store.Create(ctx, input); err != nil {
-		log.Printf("create todo failed: %v", err)
+		l.logger.Error("create todo failed", zap.Error(err))
 	}
 }
 

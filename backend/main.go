@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,10 +12,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	"chat-assist-backend/internal/auth"
 	"chat-assist-backend/internal/config"
 	"chat-assist-backend/internal/llm"
+	"chat-assist-backend/internal/logx"
 	"chat-assist-backend/internal/onebot"
 	"chat-assist-backend/internal/server"
 	"chat-assist-backend/internal/sse"
@@ -27,37 +28,50 @@ func main() {
 	configFlag := flag.String("config", "", "path to config.toml")
 	flag.Parse()
 
+	logger, err := logx.New(os.Getenv("LOG_LEVEL"))
+	if err != nil {
+		panic(err)
+	}
+	defer func() {
+		_ = logger.Sync()
+	}()
+
 	configPath := config.ResolveConfigPath(strings.TrimSpace(*configFlag))
 	if configPath == "" {
-		log.Fatal("config.toml not found")
+		logger.Error("config.toml not found")
+		os.Exit(1)
 	}
 
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("load config failed: %v", err)
+		logger.Error("load config failed", zap.Error(err))
+		os.Exit(1)
 	}
 	if strings.TrimSpace(cfg.Server.Password) == "" {
-		log.Println("warning: server.password is empty, login will always fail")
+		logger.Warn("server.password is empty, login will always fail")
 	}
 
 	db, err := storage.Open(cfg.Storage.SQLitePath)
 	if err != nil {
-		log.Fatalf("open db failed: %v", err)
+		logger.Error("open db failed", zap.Error(err))
+		os.Exit(1)
 	}
 	sqlDB, err := db.DB()
 	if err != nil {
-		log.Fatalf("open db failed: %v", err)
+		logger.Error("open db failed", zap.Error(err))
+		os.Exit(1)
 	}
 	defer sqlDB.Close()
 
 	store := storage.New(db)
 	if err := store.Init(context.Background()); err != nil {
-		log.Fatalf("init db failed: %v", err)
+		logger.Error("init db failed", zap.Error(err))
+		os.Exit(1)
 	}
 
 	llmClient := llm.NewClient(cfg)
 	if !llmClient.Enabled() {
-		log.Println("openai not configured: skip extraction")
+		logger.Info("openai not configured: skip extraction")
 	}
 
 	tokenTTL := time.Duration(cfg.Server.TokenTTLMinutes) * time.Minute
@@ -68,23 +82,23 @@ func main() {
 	if onebotClient != nil {
 		id, err := onebotClient.GetSelfID(context.Background())
 		if err != nil {
-			log.Printf("warning: get onebot self id failed: %v", err)
+			logger.Warn("get onebot self id failed", zap.Error(err))
 		} else {
 			selfID = id
-			log.Printf("onebot self id: %d", selfID)
+			logger.Info("onebot self id", zap.Int64("self_id", selfID))
 		}
 	}
-	srv := server.New(cfg, store, tokens, onebotClient)
+	srv := server.New(cfg, store, tokens, onebotClient, logger.Named("server"))
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
 	srv.RegisterRoutes(router)
-	server.RegisterStatic(router, cfg.Server.StaticDir)
+	server.RegisterStatic(router, cfg.Server.StaticDir, logger.Named("static"))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sseListener := sse.NewListener(cfg, selfID, store, llmClient)
+	sseListener := sse.NewListener(cfg, selfID, store, llmClient, logger.Named("sse"))
 	go sseListener.Start(ctx)
 
 	httpServer := &http.Server{
@@ -94,9 +108,10 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("server listening on %s", httpServer.Addr)
+		logger.Info("server listening", zap.String("addr", httpServer.Addr))
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server failed: %v", err)
+			logger.Error("server failed", zap.Error(err))
+			os.Exit(1)
 		}
 	}()
 
@@ -104,11 +119,11 @@ func main() {
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 	<-shutdown
 
-	log.Println("shutting down...")
+	logger.Info("shutting down")
 	cancel()
 	ctxTimeout, cancelTimeout := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelTimeout()
 	if err := httpServer.Shutdown(ctxTimeout); err != nil {
-		log.Printf("server shutdown error: %v", err)
+		logger.Error("server shutdown error", zap.Error(err))
 	}
 }

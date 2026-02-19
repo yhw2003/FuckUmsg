@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	"chat-assist-backend/internal/auth"
 	"chat-assist-backend/internal/config"
@@ -22,10 +23,11 @@ type Server struct {
 	store  *storage.Store
 	tokens *auth.TokenStore
 	onebot *onebot.Client
+	logger *zap.Logger
 }
 
-func New(cfg config.Config, store *storage.Store, tokens *auth.TokenStore, onebot *onebot.Client) *Server {
-	return &Server{cfg: cfg, store: store, tokens: tokens, onebot: onebot}
+func New(cfg config.Config, store *storage.Store, tokens *auth.TokenStore, onebot *onebot.Client, logger *zap.Logger) *Server {
+	return &Server{cfg: cfg, store: store, tokens: tokens, onebot: onebot, logger: logger}
 }
 
 func (s *Server) RegisterRoutes(router *gin.Engine) {

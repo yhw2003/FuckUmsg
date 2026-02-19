@@ -1,16 +1,16 @@
 package server
 
 import (
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
-func RegisterStatic(router *gin.Engine, staticDir string) {
+func RegisterStatic(router *gin.Engine, staticDir string, logger *zap.Logger) {
 	if strings.TrimSpace(staticDir) == "" {
 		return
 	}
@@ -23,7 +23,7 @@ func RegisterStatic(router *gin.Engine, staticDir string) {
 
 	indexPath := filepath.Join(abs, "index.html")
 	if _, err := os.Stat(indexPath); err != nil {
-		log.Printf("static index not found: %s", indexPath)
+		logger.Warn("static index not found", zap.String("index_path", indexPath))
 		return
 	}
 
