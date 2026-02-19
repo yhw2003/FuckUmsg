@@ -22,7 +22,6 @@ type Config struct {
 		APIURL      string `toml:"api_url"`
 		AccessToken string `toml:"access_token"`
 	} `toml:"onebot"`
-	SelfID int64 `toml:"self_id"`
 	OpenAI struct {
 		BaseURL        string `toml:"base_url"`
 		APIKey         string `toml:"api_key"`

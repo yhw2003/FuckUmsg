@@ -17,13 +17,14 @@ import (
 )
 
 type Listener struct {
-	cfg   config.Config
-	store *storage.Store
-	llm   *llm.Client
+	cfg    config.Config
+	selfID int64
+	store  *storage.Store
+	llm    *llm.Client
 }
 
-func NewListener(cfg config.Config, store *storage.Store, llm *llm.Client) *Listener {
-	return &Listener{cfg: cfg, store: store, llm: llm}
+func NewListener(cfg config.Config, selfID int64, store *storage.Store, llm *llm.Client) *Listener {
+	return &Listener{cfg: cfg, selfID: selfID, store: store, llm: llm}
 }
 
 func (l *Listener) Start(ctx context.Context) {
@@ -133,8 +134,8 @@ func (l *Listener) handleEvent(ctx context.Context, payload string, taskCh chan<
 		}
 		return
 	}
-	if l.cfg.SelfID != 0 && event.UserID == l.cfg.SelfID {
-		log.Printf("sse message ignored: self_id=%d user_id=%d", l.cfg.SelfID, event.UserID)
+	if l.selfID != 0 && event.UserID == l.selfID {
+		log.Printf("sse message ignored: self_id=%d user_id=%d", l.selfID, event.UserID)
 		return
 	}
 	if event.MessageType != "group" && event.MessageType != "private" {

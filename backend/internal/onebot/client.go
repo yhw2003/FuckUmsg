@@ -34,6 +34,19 @@ func NewClient(cfg config.Config) *Client {
 	}
 }
 
+func (c *Client) GetSelfID(ctx context.Context) (int64, error) {
+	var data struct {
+		UserID int64 `json:"user_id"`
+	}
+	if err := c.call(ctx, "get_login_info", map[string]interface{}{}, &data); err != nil {
+		return 0, err
+	}
+	if data.UserID == 0 {
+		return 0, fmt.Errorf("empty self user_id from onebot")
+	}
+	return data.UserID, nil
+}
+
 func (c *Client) GetGroupName(ctx context.Context, groupID string) (string, error) {
 	id, err := strconv.ParseInt(strings.TrimSpace(groupID), 10, 64)
 	if err != nil {

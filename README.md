@@ -19,8 +19,6 @@ QQ消息 -> OneBot11 SSE -> 后端解析/过滤 -> OpenAI 抽取 -> SQLite -> We
 编辑 `backend/config.toml`：
 
 ```toml
-self_id = 123456789
-
 [server]
 port = 8080
 password = "change_me"
@@ -43,7 +41,7 @@ sqlite_path = "./data.db"
 ```
 
 要点：
-- `self_id` 是你的 QQ 号，用于过滤掉自己发送的消息。
+- 程序启动时会通过 OneBot API `get_login_info` 自动获取并使用自己的 QQ 号（用于过滤自己发送的消息）。
 - `onebot.sse_url` 请填写 OneBot11 的 SSE 接口地址。
 - `server.password` 是网页登录口令。
 - `openai.api_key` 为敏感信息，请勿提交到公共仓库。

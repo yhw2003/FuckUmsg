@@ -1,0 +1,22 @@
+[server]
+port = 8080
+password = "change_me"
+static_dir = "../frontend/dist"
+token_ttl_minutes = 1440
+
+[onebot]
+# OneBot11 SSE 地址（用于接收消息事件）
+sse_url = "http://127.0.0.1:5700/onebot/v11/sse"
+# OneBot11 HTTP API 地址（用于查询群名、昵称、登录信息等）
+api_url = "http://127.0.0.1:5700"
+# 如果 OneBot 配置了访问令牌，请填写
+access_token = ""
+
+[openai]
+base_url = "https://api.openai.com/v1"
+api_key = ""
+model = "gpt-4o-mini"
+timeout_seconds = 30
+
+[storage]
+sqlite_path = "./data.db"

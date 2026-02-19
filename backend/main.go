@@ -64,6 +64,16 @@ func main() {
 	tokens := auth.NewTokenStore(tokenTTL)
 
 	onebotClient := onebot.NewClient(cfg)
+	selfID := int64(0)
+	if onebotClient != nil {
+		id, err := onebotClient.GetSelfID(context.Background())
+		if err != nil {
+			log.Printf("warning: get onebot self id failed: %v", err)
+		} else {
+			selfID = id
+			log.Printf("onebot self id: %d", selfID)
+		}
+	}
 	srv := server.New(cfg, store, tokens, onebotClient)
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -74,7 +84,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sseListener := sse.NewListener(cfg, store, llmClient)
+	sseListener := sse.NewListener(cfg, selfID, store, llmClient)
 	go sseListener.Start(ctx)
 
 	httpServer := &http.Server{
