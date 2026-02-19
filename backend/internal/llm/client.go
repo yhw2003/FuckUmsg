@@ -3,12 +3,14 @@ package llm
 import (
 	"bytes"
 	"context"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"text/template"
 	"time"
 
 	"chat-assist-backend/internal/config"
@@ -42,6 +44,14 @@ type ResponseEnvelope struct {
 	} `json:"error"`
 }
 
+//go:embed prompts/*.tmpl
+var promptFS embed.FS
+
+var (
+	systemPromptTemplate = template.Must(template.ParseFS(promptFS, "prompts/system.tmpl"))
+	userPromptTemplate   = template.Must(template.ParseFS(promptFS, "prompts/user.tmpl"))
+)
+
 func NewClient(cfg config.Config) *Client {
 	timeout := time.Duration(cfg.OpenAI.TimeoutSeconds) * time.Second
 	return &Client{
@@ -64,11 +74,11 @@ func (c *Client) ExtractTodo(ctx context.Context, input string) (Result, error) 
 		return result, errors.New("openai not configured")
 	}
 
-	systemPrompt := "你是代办抽取助手。判断一条聊天消息是否包含他人交代给我的待办事项。"
 	expectedFormat := "IS_TODO: true|false\nTITLE: <待办标题或空>\nDETAIL: <待办详情或空>"
-	userPrompt := "请判断下面消息是否为待办。如果是，提炼一个简洁的待办标题，并补充一段简要的待办详情（可包含关键事项、时间或条件，DETAIL 请保持单行）。" +
-		"严格按以下三行格式输出，不要输出其他内容：\n" +
-		expectedFormat + "\n\n如果不是待办，IS_TODO=false 且 TITLE/DETAIL 为空字符串。\n\n消息内容:\n" + input
+	systemPrompt, userPrompt, err := buildExtractPrompts(input, expectedFormat)
+	if err != nil {
+		return result, err
+	}
 
 	payload := map[string]interface{}{
 		"model":        c.model,
@@ -155,6 +165,29 @@ func buildOpenAIURL(base string) string {
 		return trimmed + "/responses"
 	}
 	return trimmed + "/v1/responses"
+}
+
+func buildExtractPrompts(input string, expectedFormat string) (string, string, error) {
+	systemPrompt, err := renderPrompt(systemPromptTemplate, nil)
+	if err != nil {
+		return "", "", err
+	}
+	userPrompt, err := renderPrompt(userPromptTemplate, map[string]string{
+		"ExpectedFormat": expectedFormat,
+		"Input":          input,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	return systemPrompt, userPrompt, nil
+}
+
+func renderPrompt(tmpl *template.Template, data interface{}) (string, error) {
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("render prompt failed: %w", err)
+	}
+	return buf.String(), nil
 }
 
 func extractOutputText(outputs []struct {
