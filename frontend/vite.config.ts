@@ -10,6 +10,10 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    outDir: '../backend/internal/server/web_dist',
+    emptyOutDir: true,
+  },
   server: {
     proxy: {
       '/api': 'http://localhost:8080',

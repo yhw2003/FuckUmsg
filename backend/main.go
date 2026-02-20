@@ -108,7 +108,7 @@ func main() {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
 	srv.RegisterRoutes(router)
-	server.RegisterStatic(router, cfg.Server.StaticDir, logger.Named("static"))
+	server.RegisterStatic(router, cfg.Server.StaticDir, cfg.Server.StaticEmbed, logger.Named("static"))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

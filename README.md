@@ -22,7 +22,8 @@ QQ消息 -> OneBot11 SSE -> 后端解析/过滤 -> OpenAI 抽取 -> SQLite -> We
 [server]
 port = 8080
 password = "change_me"
-static_dir = "../frontend/dist"
+static_dir = "internal/server/web_dist"
+static_embed = true
 token_ttl_minutes = 1440
 
 [onebot]
@@ -59,6 +60,7 @@ format = "json"
 - 程序启动时会通过 OneBot API `get_login_info` 自动获取并使用自己的 QQ 号（用于过滤自己发送的消息）。
 - `onebot.sse_url` 请填写 OneBot11 的 SSE 接口地址。
 - `server.password` 是网页登录口令。
+- `server.static_embed=true` 时优先使用编译进二进制的前端资源；`false` 时使用 `server.static_dir` 指向的磁盘目录。
 - `openai.api_key` 为敏感信息，请勿提交到公共仓库。
 - `calendar.week_mode` 仅支持 `academic` / `natural`。
 - 当 `calendar.week_mode=academic` 时，`calendar.week1_monday` 必填，格式 `YYYY-MM-DD`，且必须是周一。
@@ -66,7 +68,9 @@ format = "json"
 
 ## 运行方式
 
-1. 安装前端依赖并构建：
+### 生产部署（推荐：前端资源内嵌到后端二进制）
+
+1. 构建前端资源（会输出到 `backend/internal/server/web_dist`）：
 
 ```bash
 cd frontend
@@ -74,7 +78,7 @@ pnpm install
 pnpm build
 ```
 
-2. 启动后端：
+2. 启动后端（`server.static_embed=true`）：
 
 ```bash
 cd backend
@@ -82,17 +86,10 @@ go mod tidy
 go run . -config config.toml
 ```
 
-不传 `-config` 时，会按顺序尝试 `./config.toml`、`./backend/config.toml`。
+### 开发模式（使用磁盘静态目录）
 
-3. 浏览器访问：
-
-```
-http://localhost:8080
-```
-
-## 开发模式
-
-前端本地开发：
+1. 将 `server.static_embed` 设置为 `false`，并保持 `server.static_dir` 指向静态目录。
+2. 启动前端开发服务器：
 
 ```bash
 cd frontend

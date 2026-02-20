@@ -1,7 +1,8 @@
 [server]
 port = 8080
 password = "change_me"
-static_dir = "../frontend/dist"
+static_dir = "internal/server/web_dist"
+static_embed = true
 token_ttl_minutes = 1440
 
 [onebot]

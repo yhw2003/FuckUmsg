@@ -15,6 +15,7 @@ type Config struct {
 		Port            int    `toml:"port"`
 		Password        string `toml:"password"`
 		StaticDir       string `toml:"static_dir"`
+		StaticEmbed     bool   `toml:"static_embed"`
 		TokenTTLMinutes int    `toml:"token_ttl_minutes"`
 	} `toml:"server"`
 	OneBot struct {
@@ -67,7 +68,7 @@ func applyDefaults(cfg *Config) {
 		cfg.Server.Port = 8080
 	}
 	if strings.TrimSpace(cfg.Server.StaticDir) == "" {
-		cfg.Server.StaticDir = filepath.FromSlash("../frontend/dist")
+		cfg.Server.StaticDir = filepath.FromSlash("internal/server/web_dist")
 	}
 	if cfg.Server.TokenTTLMinutes == 0 {
 		cfg.Server.TokenTTLMinutes = int((24 * time.Hour).Minutes())
