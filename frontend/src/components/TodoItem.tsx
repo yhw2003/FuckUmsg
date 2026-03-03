@@ -35,8 +35,13 @@ function TodoItem({
   const isEditing = editingId === todo.id
 
   return (
-    <div className={`todo-item ${isDone ? 'done' : ''}`.trim()} style={{ animationDelay: `${index * 50}ms` }}>
-      <div>
+    <article className={`todo-item ${isDone ? 'is-done' : ''}`.trim()} style={{ animationDelay: `${index * 45}ms` }}>
+      <div className="todo-main">
+        <div className="todo-headline">
+          <span className={`tag ${isDone ? 'tag-done' : 'tag-open'}`.trim()}>{isDone ? '已完成' : '待处理'}</span>
+          <span className="todo-number">任务 #{todo.id}</span>
+        </div>
+
         {isEditing ? (
           <input
             className="input todo-title-input"
@@ -52,8 +57,9 @@ function TodoItem({
             }}
           />
         ) : (
-          <div className="todo-title">{todo.title}</div>
+          <h4 className="todo-title">{todo.title}</h4>
         )}
+
         {isEditing ? (
           <textarea
             className="input todo-detail-input"
@@ -62,44 +68,45 @@ function TodoItem({
             onChange={(event) => onEditingDetailChange(event.target.value)}
           />
         ) : todo.detail ? (
-          <div className="todo-detail">{todo.detail}</div>
+          <p className="todo-detail">{todo.detail}</p>
         ) : todo.raw_message ? (
-          <div className="todo-detail muted">{todo.raw_message}</div>
+          <p className="todo-detail muted">{todo.raw_message}</p>
         ) : null}
+
         <div className="todo-meta">
-          <span className={`badge ${isDone ? 'done' : ''}`.trim()}>{isDone ? '已完成' : '待处理'}</span>
-          <span>{sourceLabel(todo)}</span>
-          <span>{senderLabel(todo)}</span>
-          <span>接收时间：{formatTime(todo.created_at)}</span>
-          <span>截止时间：{formatDeadline(todo.deadline_at)}</span>
+          <span className="meta-chip">{sourceLabel(todo)}</span>
+          <span className="meta-chip">{senderLabel(todo)}</span>
+          <span className="meta-chip">接收时间：{formatTime(todo.created_at)}</span>
+          <span className="meta-chip">截止时间：{formatDeadline(todo.deadline_at)}</span>
         </div>
       </div>
+
       <div className="todo-actions">
         {isEditing ? (
           <>
-            <button className="button secondary small" onClick={() => void onSaveEdit(todo)}>
-              保存
+            <button className="button button-primary button-sm" onClick={() => void onSaveEdit(todo)}>
+              保存修改
             </button>
-            <button className="button ghost small" onClick={onCancelEdit}>
+            <button className="button button-ghost button-sm" onClick={onCancelEdit}>
               取消
             </button>
           </>
         ) : (
           <>
-            <span className="status-text">{isDone ? '可以撤销完成' : '完成后可撤销'}</span>
-            <button className="button secondary small" onClick={() => void onToggle(todo)}>
-              {isDone ? '撤销' : '完成'}
+            <p className="status-hint">{isDone ? '可撤销为待处理' : '完成后仍可回退'}</p>
+            <button className="button button-secondary button-sm" onClick={() => void onToggle(todo)}>
+              {isDone ? '撤销完成' : '标记完成'}
             </button>
-            <button className="button ghost small" onClick={() => onStartEdit(todo)}>
+            <button className="button button-ghost button-sm" onClick={() => onStartEdit(todo)}>
               编辑
             </button>
-            <button className="button danger small" onClick={() => void onDelete(todo)}>
+            <button className="button button-danger button-sm" onClick={() => void onDelete(todo)}>
               删除
             </button>
           </>
         )}
       </div>
-    </div>
+    </article>
   )
 }
 

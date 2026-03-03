@@ -7,15 +7,10 @@ interface LoginPanelProps {
 }
 
 function LoginPanel({ password, loading, loginError, onPasswordChange, onLogin }: LoginPanelProps) {
-  const inputId = 'access-password'
-
   return (
     <>
-      <div className="panel-header">
-        <h2 className="panel-title">登录</h2>
-      </div>
       <form
-        className="login-grid"
+        className="login-form"
         onSubmit={(event) => {
           event.preventDefault()
           if (!password || loading) {
@@ -24,22 +19,21 @@ function LoginPanel({ password, loading, loginError, onPasswordChange, onLogin }
           void onLogin()
         }}
       >
-        <label className="sr-only" htmlFor={inputId}>
-          访问口令
-        </label>
         <input
-          id={inputId}
           className="input"
           type="password"
           placeholder="输入访问口令"
+          aria-label="访问口令"
           value={password}
           onChange={(event) => onPasswordChange(event.target.value)}
         />
-        <button className="button" type="submit" disabled={loading || !password}>
+
+        <button className="button button-primary login-submit" type="submit" disabled={loading || !password}>
           {loading ? '登录中...' : '进入看板'}
         </button>
       </form>
-      {loginError ? <div className="error">{loginError}</div> : null}
+
+      {loginError ? <div className="alert-error">{loginError}</div> : null}
     </>
   )
 }

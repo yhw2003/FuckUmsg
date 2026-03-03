@@ -1,31 +1,25 @@
 :root {
-  font-family: "Space Grotesk", "Noto Sans SC", sans-serif;
+  font-family: 'Manrope', 'Noto Sans SC', 'PingFang SC', 'Segoe UI', sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #eef4ff;
-  background-color: #0b1020;
+  color-scheme: light;
+
+  --bg-base: #f4f8ff;
+  --bg-accent: #eef5ff;
+  --surface-1: #ffffff;
+  --border-soft: #dbe7f6;
+
+  --text-primary: #132642;
+  --text-secondary: #365577;
+  --text-muted: #6b84a5;
+
+  --shadow-md: 0 14px 28px rgba(22, 64, 112, 0.1);
+  --shadow-lg: 0 20px 40px rgba(19, 56, 99, 0.12);
+  --focus-ring: rgba(19, 120, 228, 0.25);
+
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  --paper: rgba(255, 255, 255, 0.24);
-  --ink: #f4f8ff;
-  --muted: rgba(226, 235, 255, 0.72);
-  --accent: #73b4ff;
-  --accent-dark: #5a9df0;
-  --teal: #89e0ca;
-  --shadow: 0 26px 60px rgba(5, 10, 28, 0.45);
-  --ring: rgba(124, 190, 255, 0.5);
-  --border: rgba(255, 255, 255, 0.2);
-
-  --glass-bg: rgba(255, 255, 255, 0.14);
-  --glass-bg-strong: rgba(255, 255, 255, 0.22);
-  --glass-bg-soft: rgba(255, 255, 255, 0.1);
-  --glass-border: rgba(255, 255, 255, 0.3);
-  --glass-highlight: rgba(255, 255, 255, 0.5);
-  --glass-shadow: 0 22px 58px rgba(7, 12, 32, 0.4);
-  --glass-shadow-soft: 0 10px 26px rgba(7, 12, 32, 0.25);
-  --glass-blur: blur(16px) saturate(155%);
 }
 
 * {
@@ -36,40 +30,31 @@ body {
   margin: 0;
   min-height: 100vh;
   overflow-x: hidden;
-  position: relative;
+  color: var(--text-primary);
   background:
-    radial-gradient(circle at 12% 12%, rgba(112, 175, 255, 0.32), transparent 42%),
-    radial-gradient(circle at 86% 16%, rgba(126, 245, 220, 0.2), transparent 48%),
-    radial-gradient(circle at 80% 88%, rgba(160, 132, 255, 0.24), transparent 46%),
-    linear-gradient(140deg, #090f22 0%, #131b34 45%, #1b2345 100%);
-  color: var(--ink);
-}
-
-body::before,
-body::after {
-  content: "";
-  position: fixed;
-  inset: auto;
-  border-radius: 999px;
-  pointer-events: none;
-  filter: blur(6px);
-  z-index: -1;
+    radial-gradient(circle at 8% 12%, rgba(24, 145, 255, 0.16), rgba(24, 145, 255, 0) 33%),
+    radial-gradient(circle at 88% 9%, rgba(10, 184, 145, 0.1), rgba(10, 184, 145, 0) 36%),
+    linear-gradient(180deg, var(--bg-accent) 0%, var(--bg-base) 100%);
 }
 
 body::before {
-  width: 360px;
-  height: 360px;
-  top: -90px;
-  right: -70px;
-  background: radial-gradient(circle at 35% 35%, rgba(186, 223, 255, 0.52), rgba(115, 180, 255, 0.08) 62%, transparent 72%);
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(rgba(20, 71, 132, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(20, 71, 132, 0.03) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(circle at center, black 35%, transparent 78%);
+  z-index: -1;
 }
 
-body::after {
-  width: 440px;
-  height: 440px;
-  left: -160px;
-  bottom: -160px;
-  background: radial-gradient(circle at 48% 48%, rgba(161, 255, 230, 0.38), rgba(124, 172, 255, 0.1) 58%, transparent 72%);
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
 }
 
 a {
@@ -78,8 +63,8 @@ a {
 }
 
 img {
-  max-width: 100%;
   display: block;
+  max-width: 100%;
 }
 
 button,
@@ -89,46 +74,26 @@ textarea {
 }
 
 button {
+  cursor: pointer;
   border: none;
   background: none;
-  cursor: pointer;
+}
+
+textarea {
+  color: inherit;
 }
 
 #root {
-  width: 100%;
-  position: relative;
-  z-index: 1;
+  min-height: 100vh;
 }
 
 @media (max-width: 720px) {
   :root {
-    --glass-blur: blur(10px) saturate(145%);
-    --shadow: 0 18px 38px rgba(5, 10, 28, 0.35);
-    --glass-shadow: 0 16px 34px rgba(7, 12, 32, 0.3);
+    --shadow-md: 0 10px 20px rgba(22, 64, 112, 0.09);
+    --shadow-lg: 0 14px 28px rgba(19, 56, 99, 0.11);
   }
 
   body::before {
-    width: 260px;
-    height: 260px;
-    top: -80px;
-    right: -100px;
-  }
-
-  body::after {
-    width: 300px;
-    height: 300px;
-    left: -120px;
-    bottom: -120px;
-  }
-}
-
-@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  :root {
-    --paper: rgba(28, 36, 64, 0.92);
-    --glass-bg: rgba(28, 36, 64, 0.9);
-    --glass-bg-strong: rgba(34, 44, 74, 0.95);
-    --glass-bg-soft: rgba(24, 31, 58, 0.86);
-    --glass-border: rgba(168, 190, 240, 0.34);
-    --glass-highlight: rgba(199, 217, 255, 0.4);
+    background-size: 22px 22px;
   }
 }

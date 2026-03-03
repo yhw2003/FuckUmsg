@@ -36,18 +36,34 @@ function TodosView({
   onDelete,
   onToggleCompleted,
 }: TodosViewProps) {
+  const total = openTodos.length + doneTodos.length
+
   return (
-    <>
-      {error ? <div className="error">{error}</div> : null}
-      {openTodos.length === 0 && doneTodos.length === 0 ? (
-        <div className="empty">暂时没有代办，等消息进来再看看。</div>
+    <div className="section-stack">
+      {error ? <div className="alert-error">{error}</div> : null}
+
+      {total === 0 ? (
+        <div className="empty-state">
+          <h3>暂无待办</h3>
+          <p>系统会在接收到可抽取消息后自动生成事项。</p>
+        </div>
       ) : (
         <>
-          <div className="todo-list">
-            {openTodos.length === 0 ? (
-              <div className="empty">暂无未完成事项。</div>
-            ) : (
-              openTodos.map((todo, index) => (
+          <div className="section-heading">
+            <div>
+              <h3>待处理事项</h3>
+            </div>
+            <span className="count-pill">{openTodos.length} 条</span>
+          </div>
+
+          {openTodos.length === 0 ? (
+            <div className="empty-state subtle">
+              <h3>没有未完成事项</h3>
+              <p>当前队列中的任务都已处理完毕。</p>
+            </div>
+          ) : (
+            <div className="list-stack">
+              {openTodos.map((todo, index) => (
                 <TodoItem
                   todo={todo}
                   index={index}
@@ -64,17 +80,21 @@ function TodosView({
                   onDelete={onDelete}
                   key={todo.id}
                 />
-              ))
-            )}
-          </div>
-          <div className="collapse-header">
-            <div className="collapse-title">已完成 {doneTodos.length} 条</div>
-            <button className="button secondary small" onClick={onToggleCompleted} disabled={doneTodos.length === 0}>
-              {showCompleted ? '收起' : '展开'}
+              ))}
+            </div>
+          )}
+
+          <div className="collapse-row">
+            <div>
+              <h3>已完成任务</h3>
+            </div>
+            <button className="button button-secondary button-sm" onClick={onToggleCompleted} disabled={doneTodos.length === 0}>
+              {showCompleted ? '收起列表' : '展开列表'}
             </button>
           </div>
+
           {showCompleted && doneTodos.length > 0 ? (
-            <div className="todo-list compact">
+            <div className="list-stack compact">
               {doneTodos.map((todo, index) => (
                 <TodoItem
                   todo={todo}
@@ -97,7 +117,7 @@ function TodosView({
           ) : null}
         </>
       )}
-    </>
+    </div>
   )
 }
 
