@@ -12,18 +12,14 @@ import (
 	"go.uber.org/zap"
 
 	"chat-assist-backend/internal/config"
-	"chat-assist-backend/internal/llm"
+	"chat-assist-backend/internal/llm/todoflow"
 	"chat-assist-backend/internal/onebot"
 	"chat-assist-backend/internal/storage"
-	"chat-assist-backend/internal/timeparse"
 )
 
 type llmClient interface {
+	todoflow.Client
 	Enabled() bool
-	ClassifyTodo(ctx context.Context, input string) (bool, error)
-	SummarizeTodo(ctx context.Context, input string) (string, string, error)
-	ExtractRelativeDate(ctx context.Context, input string, nowContext string) (llm.RelativeDateInfo, error)
-	RetryRelativeDate(ctx context.Context, input string, nowContext string, classicDate int64, previousLLM llm.RelativeDateInfo) (llm.RelativeDateInfo, error)
 }
 
 type listenerStore interface {
@@ -220,88 +216,55 @@ func (l *Listener) processEvent(ctx context.Context, event onebot.Event) {
 		messageText,
 	)
 
-	isTodo, err := l.llm.ClassifyTodo(ctx, promptInput)
-	if err != nil {
-		l.logger.Error("llm classify failed", zap.Error(err))
-		l.persistFailedMessage(ctx, event, sourceID, messageText, "classify", err)
-		return
-	}
-	if !isTodo {
-		return
-	}
-	title, detail, err := l.llm.SummarizeTodo(ctx, promptInput)
-	if err != nil {
-		l.logger.Error("llm summarize failed", zap.Error(err))
-		l.persistFailedMessage(ctx, event, sourceID, messageText, "summarize", err)
-		return
-	}
-
-	dateCtx := timeparse.Context{
+	result, err := todoflow.Run(ctx, l.llm, todoflow.Input{
+		PromptInput: promptInput,
+		MessageText: messageText,
+		NowContext:  nowContext,
 		Now:         now,
 		WeekMode:    l.cfg.Calendar.WeekMode,
 		Week1Monday: l.cfg.Calendar.Week1Monday,
 		Location:    time.Local,
-	}
-
-	relative1, err := l.llm.ExtractRelativeDate(ctx, messageText, nowContext)
+	}, todoflow.Hooks{
+		OnFailed: func(stage string, err error) {
+			l.logger.Error("llm "+stage+" failed", zap.Error(err))
+			l.persistFailedMessage(ctx, event, sourceID, messageText, stage, err)
+		},
+	}, l.logger)
 	if err != nil {
-		l.logger.Warn("llm relative date extract failed", zap.Error(err))
-		relative1 = llm.RelativeDateInfo{}
+		return
 	}
-	llmDate1 := timeparse.ComputeFromRelativeInfo(relative1, dateCtx).DateAt
-	classicDate := timeparse.ComputeClassicDate(messageText, dateCtx).DateAt
+	if !result.IsTodo {
+		return
+	}
 
-	l.logger.Debug("date dual-track",
-		zap.String("date_stage", "extract"),
-		zap.Int64("llm_date_1", llmDate1),
-		zap.Int64("classic_date_1", classicDate),
+	finalDeadline, deadlineLLM, deadlineClassic, deadlineConflict, deadlineNote := finalizeDateDecision(
+		result.ClassicDate,
+		result.LLMDate1,
+		result.HasRetry,
+		result.LLMDate2,
+		time.Local,
 	)
 
-	llmDate2 := int64(0)
-	hasRetry := false
-	if llmDate1 != classicDate {
-		l.logger.Debug("date dual-track",
-			zap.String("date_stage", "compare"),
-			zap.Int64("llm_date_1", llmDate1),
-			zap.Int64("classic_date_1", classicDate),
-		)
-		relative2, retryErr := l.llm.RetryRelativeDate(ctx, messageText, nowContext, classicDate, relative1)
-		if retryErr != nil {
-			l.logger.Warn("llm relative date retry failed", zap.Error(retryErr))
-		} else {
-			hasRetry = true
-			llmDate2 = timeparse.ComputeFromRelativeInfo(relative2, dateCtx).DateAt
-			l.logger.Debug("date dual-track",
-				zap.String("date_stage", "retry"),
-				zap.Int64("llm_date_1", llmDate1),
-				zap.Int64("classic_date_1", classicDate),
-				zap.Int64("llm_date_2", llmDate2),
-			)
-		}
-	}
-
-	finalDeadline, deadlineLLM, deadlineClassic, deadlineConflict, deadlineNote := finalizeDateDecision(classicDate, llmDate1, hasRetry, llmDate2, time.Local)
-
 	l.logger.Info("todo extracted",
-		zap.String("title", title),
-		zap.String("detail", detail),
+		zap.String("title", result.Title),
+		zap.String("detail", result.Detail),
 		zap.String("source_label", sourceLabel),
 		zap.String("source_id", sourceID),
 		zap.String("sender_name", senderName),
 		zap.Int64("sender_id", event.UserID),
 		zap.Any("message_id", event.MessageID),
 		zap.String("date_stage", "finalize"),
-		zap.Int64("llm_date_1", llmDate1),
-		zap.Int64("classic_date_1", classicDate),
-		zap.Int64("llm_date_2", llmDate2),
+		zap.Int64("llm_date_1", result.LLMDate1),
+		zap.Int64("classic_date_1", result.ClassicDate),
+		zap.Int64("llm_date_2", result.LLMDate2),
 		zap.Bool("conflict", deadlineConflict),
 		zap.Int64("final_deadline_at", finalDeadline),
 	)
 
 	messageID := fmt.Sprintf("%v", event.MessageID)
 	input := storage.TodoInput{
-		Title:             title,
-		Detail:            detail,
+		Title:             result.Title,
+		Detail:            result.Detail,
 		SourceType:        event.MessageType,
 		SourceID:          sourceID,
 		SourceName:        senderName,
